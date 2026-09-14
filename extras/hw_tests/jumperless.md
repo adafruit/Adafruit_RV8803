@@ -64,7 +64,7 @@ power sequence as the other sketches, then allow the existing 600 ms startup wai
 
 ## Test-specific handling
 
-- Tests `00`–`14` and `sqw_diag` use this same wiring. For `06_ram`, set
+- Tests `00`–`04`, `06`–`14`, and `sqw_diag` use this same wiring. For `06_ram`, set
   `batteryInstalled` to match the actual coin cell; it currently defaults to true.
 - `15_no_battery` requires physically removing the coin cell. The same routes
   remain valid: the sketch disables pull-ups and auxiliary outputs before its
