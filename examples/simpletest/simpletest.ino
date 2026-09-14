@@ -25,16 +25,22 @@ void setup() {
   }
   Serial.println(F("RV8803 found!"));
 
+  // Report retained status before setting the time clears the power flags.
+  uint8_t flags = rtc.readFlagRegister();
+  if (flags == RV8803_READ_ERROR) {
+    Serial.println(F("Could not read temperature-compensation status"));
+  } else if (flags & RV8803_FLAG_V1F) {
+    Serial.println(F("Low voltage interrupted temperature compensation; clock accuracy may have been affected"));
+  } else {
+    Serial.println(F("No low-voltage interruption of temperature compensation recorded since flags were cleared"));
+  }
+
   // Check if RTC lost power and needs time set
   if (rtc.lostPower()) {
     Serial.println(F("RTC lost power, setting time to compile time"));
     // Set to compile time
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
-
-  // Print initial status
-  Serial.print(F("V1F (temp comp stopped): "));
-  Serial.println(rtc.tempCompStopped() ? F("Yes") : F("No"));
 
   // Clear any power flags
   rtc.clearPowerFlags();
