@@ -7,6 +7,10 @@ Requires the Jumperless V5 MicroPython API (verified on firmware 5.7.11.0).
 import time
 import jumperless as j
 
+# False when uploading/monitoring through the Nano's own USB connector.
+# Set True only when using Jumperless UART passthrough with Nano USB unplugged.
+CONNECT_NANO_UART = False
+
 # RV8803 QT rev A: consecutive header pins, starting with VIN in row 1.
 # Keep these Nano pins aligned with the existing hardware-test sketches.
 # Connect VIN last; A0 must be its only power source for power-cycle tests.
@@ -24,6 +28,8 @@ UART_CONNECTIONS = (
     (j.UART_TX, j.D0, "Jumperless TX -> Nano RX"),
     (j.UART_RX, j.D1, "Jumperless RX <- Nano TX"),
 )
+if not CONNECT_NANO_UART:
+    UART_CONNECTIONS = ()
 
 # Own only these endpoints. Other breadboard circuits and supply settings stay
 # intact. In particular, remove old GPIO/ADC/power connections to our Nano pins.
@@ -37,6 +43,8 @@ OWNED_NODES = tuple(range(1, 9)) + (
 def setup():
     print("Adafruit RV8803 Jumperless fixture setup")
     print("Use a 5 V ATmega328P Nano in the Nano socket.")
+    if not CONNECT_NANO_UART:
+        print("Nano USB selected; Jumperless UART will be disconnected.")
 
     # Global connections remain active after this script/REPL exits.
     if j.context_get() != "global":

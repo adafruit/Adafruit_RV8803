@@ -15,8 +15,9 @@ void setup() {
   while (!Serial) delay(10);
   delay(250);
   Serial.println(F("Adafruit RV8803 countdown timing test"));
-  digitalWrite(A0, HIGH);
+  // Use an output to supply VIN; an input HIGH would first enable a weak pull-up.
   pinMode(A0, OUTPUT);
+  digitalWrite(A0, HIGH);
   pinMode(interruptPin, INPUT);
   delay(600); // Power-on reset can take 500 ms (manual section 7.4).
   check(rtc.begin(), F("Begin succeeded"));

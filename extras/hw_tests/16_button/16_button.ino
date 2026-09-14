@@ -15,8 +15,9 @@ void setup() {
   while (!Serial) delay(10);
   delay(250);
   Serial.println(F("Adafruit RV8803 physical EVI button test"));
-  digitalWrite(A0, HIGH);
+  // Use an output to supply VIN; an input HIGH would first enable a weak pull-up.
   pinMode(A0, OUTPUT);
+  digitalWrite(A0, HIGH);
   // The breakout pulls EVI and INT up. Do not drive either pin from the MCU.
   pinMode(buttonPin, INPUT);
   pinMode(interruptPin, INPUT);

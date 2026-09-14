@@ -9,8 +9,9 @@ void setup() {
   while (!Serial) delay(10);
   delay(250);
   Serial.println(F("Adafruit RV8803 basic and reset test"));
-  digitalWrite(A0, HIGH);
+  // Use an output to supply VIN; an input HIGH would first enable a weak pull-up.
   pinMode(A0, OUTPUT);
+  digitalWrite(A0, HIGH);
   delay(600); // Power-on reset can take 500 ms (manual section 7.4).
   check(rtc.begin(), F("Begin succeeded"));
   check(rtc.adjust(DateTime(2026, 9, 7, 12, 34, 20)), F("Time set"));

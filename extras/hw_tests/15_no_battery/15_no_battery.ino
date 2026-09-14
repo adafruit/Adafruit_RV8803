@@ -23,8 +23,9 @@ void setup() {
   // Release every auxiliary connection so no MCU output or pull-up can supply
   // the RTC while VIN is off. The breakout provides its own input biasing.
   for (uint16_t pin = 2; pin <= 5; pin++) pinMode(pin, INPUT);
-  digitalWrite(powerPin, HIGH);
+  // Use an output to supply VIN; an input HIGH would first enable a weak pull-up.
   pinMode(powerPin, OUTPUT);
+  digitalWrite(powerPin, HIGH);
   delay(600); // Power-on reset can take 500 ms (manual section 7.4).
   check(rtc.begin(), F("Begin succeeded"));
   check(rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0)), F("Reference time set"));
@@ -87,8 +88,9 @@ void loop() {}
 void restorePower() {
   pinMode(sdaPin, INPUT);
   pinMode(sclPin, INPUT);
-  digitalWrite(powerPin, HIGH);
+  // Use an output to supply VIN; an input HIGH would first enable a weak pull-up.
   pinMode(powerPin, OUTPUT);
+  digitalWrite(powerPin, HIGH);
   delay(600); // Allow the full power-on reset interval before I2C access.
   Wire.begin();
 }
