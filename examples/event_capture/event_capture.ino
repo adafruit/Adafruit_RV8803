@@ -22,12 +22,12 @@ void setup() {
   if (!rtc.readFlagRegister(&flags)) {
     halt(F("Could not read the saved event status"));
   }
-  if (flags & RV8803_FLAG_V2F) {
+  if (flags & RV8803_FLAG_TIME_INVALID) {
     Serial.println(F("RTC lost power; previous event data cannot be trusted"));
     if (!rtc.adjust(DateTime(F(__DATE__), F(__TIME__)))) {
       halt(F("Could not set the time"));
     }
-  } else if (flags & RV8803_FLAG_EVF) {
+  } else if (flags & RV8803_FLAG_EVENT) {
     Serial.println(F("Pending event at startup (latest event):"));
     if (!printCapturedEvent()) {
       halt(F("Could not read the saved event timestamp"));

@@ -125,7 +125,7 @@ bool Adafruit_RV8803::lostPower() {
   if (flags == RV8803_READ_ERROR) {
     return true;
   }
-  return (flags & RV8803_FLAG_V2F) != 0;
+  return (flags & RV8803_FLAG_TIME_INVALID) != 0;
 }
 
 /**
@@ -136,7 +136,7 @@ bool Adafruit_RV8803::isrunning() {
   uint8_t control = readControlRegister();
   uint8_t flags = readFlagRegister();
   return control != RV8803_READ_ERROR && flags != RV8803_READ_ERROR &&
-         !(control & RV8803_CTRL_RESET) && !(flags & RV8803_FLAG_V2F);
+         !(control & RV8803_CTRL_RESET) && !(flags & RV8803_FLAG_TIME_INVALID);
 }
 
 /**
@@ -432,7 +432,7 @@ bool Adafruit_RV8803::alarmFired() {
   if (flags == RV8803_READ_ERROR) {
     return false;
   }
-  return (flags & RV8803_FLAG_AF) != 0;
+  return (flags & RV8803_FLAG_ALARM) != 0;
 }
 
 /**
@@ -442,7 +442,7 @@ bool Adafruit_RV8803::alarmFired() {
 bool Adafruit_RV8803::clearAlarm() {
   // Write zero only to the requested flag; preserve flags set during I2C
   // access.
-  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_AF);
+  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_ALARM);
 }
 
 /**
@@ -524,7 +524,7 @@ bool Adafruit_RV8803::timerFired() {
   if (flags == RV8803_READ_ERROR) {
     return false;
   }
-  return (flags & RV8803_FLAG_TF) != 0;
+  return (flags & RV8803_FLAG_TIMER) != 0;
 }
 
 /**
@@ -534,7 +534,7 @@ bool Adafruit_RV8803::timerFired() {
 bool Adafruit_RV8803::clearTimer() {
   // Write zero only to the requested flag; preserve flags set during I2C
   // access.
-  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_TF);
+  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_TIMER);
 }
 
 /**
@@ -559,7 +559,7 @@ bool Adafruit_RV8803::updateFired() {
   if (flags == RV8803_READ_ERROR) {
     return false;
   }
-  return (flags & RV8803_FLAG_UF) != 0;
+  return (flags & RV8803_FLAG_UPDATE) != 0;
 }
 
 /**
@@ -569,7 +569,7 @@ bool Adafruit_RV8803::updateFired() {
 bool Adafruit_RV8803::clearUpdate() {
   // Write zero only to the requested flag; preserve flags set during I2C
   // access.
-  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_UF);
+  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_UPDATE);
 }
 
 /**
@@ -675,7 +675,7 @@ bool Adafruit_RV8803::eventFired() {
   if (flags == RV8803_READ_ERROR) {
     return false;
   }
-  return (flags & RV8803_FLAG_EVF) != 0;
+  return (flags & RV8803_FLAG_EVENT) != 0;
 }
 
 /**
@@ -685,7 +685,7 @@ bool Adafruit_RV8803::eventFired() {
 bool Adafruit_RV8803::clearEvent() {
   // Write zero only to the requested flag; preserve flags set during I2C
   // access.
-  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_EVF);
+  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_EVENT);
 }
 
 /**
@@ -784,7 +784,7 @@ bool Adafruit_RV8803::tempCompStopped() {
   if (flags == RV8803_READ_ERROR) {
     return true;
   }
-  return (flags & RV8803_FLAG_V1F) != 0;
+  return (flags & RV8803_FLAG_TEMP_COMP_STOPPED) != 0;
 }
 
 /**
@@ -793,8 +793,8 @@ bool Adafruit_RV8803::tempCompStopped() {
  */
 bool Adafruit_RV8803::clearPowerFlags() {
   // V1F/V2F clear together. Preserve all interrupt flags, including new events.
-  return writeFlagRegister(RV8803_FLAG_MASK &
-                           ~(RV8803_FLAG_V1F | RV8803_FLAG_V2F));
+  return writeFlagRegister(RV8803_FLAG_MASK & ~(RV8803_FLAG_TEMP_COMP_STOPPED |
+                                                RV8803_FLAG_TIME_INVALID));
 }
 
 /**

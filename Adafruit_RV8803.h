@@ -82,12 +82,14 @@
 
 /** @name Flag Register Bits (0x0E)
  *  @{ */
-#define RV8803_FLAG_UF 0x20  /**< Periodic update flag */
-#define RV8803_FLAG_TF 0x10  /**< Timer flag */
-#define RV8803_FLAG_AF 0x08  /**< Alarm flag */
-#define RV8803_FLAG_EVF 0x04 /**< External event flag */
-#define RV8803_FLAG_V2F 0x02 /**< Voltage low 2 - data invalid */
-#define RV8803_FLAG_V1F 0x01 /**< Voltage low 1 - temp comp stopped */
+#define RV8803_FLAG_UPDATE 0x20 /**< Periodic update occurred (UF) */
+#define RV8803_FLAG_TIMER 0x10  /**< Countdown timer expired (TF) */
+#define RV8803_FLAG_ALARM 0x08  /**< Alarm occurred (AF) */
+#define RV8803_FLAG_EVENT 0x04  /**< External event detected (EVF) */
+#define RV8803_FLAG_TIME_INVALID \
+  0x02 /**< Low voltage made time unreliable (V2F) */
+#define RV8803_FLAG_TEMP_COMP_STOPPED \
+  0x01 /**< Low voltage interrupted temperature compensation (V1F) */
 /** @} */
 
 /** @name Control Register Bits (0x0F)

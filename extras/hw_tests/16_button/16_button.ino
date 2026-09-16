@@ -36,7 +36,7 @@ void setup() {
   check(rtc.clearEvent(), F("Old event flag cleared"));
   check(rtc.enableInterrupt(RV8803_InterruptEvent), F("Event interrupt enabled"));
   uint8_t flags = rtc.readFlagRegister();
-  check(flags != RV8803_READ_ERROR && !(flags & RV8803_FLAG_EVF),
+  check(flags != RV8803_READ_ERROR && !(flags & RV8803_FLAG_EVENT),
         F("Event flag initially clear"));
   check(digitalRead(interruptPin) == HIGH, F("INT initially released"));
 
@@ -45,7 +45,7 @@ void setup() {
   check(waitForButton(LOW), F("Pressed button reads LOW on D4"));
   // The stable-input wait exceeds two periods of the RTC's 15.6 ms filter.
   flags = rtc.readFlagRegister();
-  check(flags != RV8803_READ_ERROR && (flags & RV8803_FLAG_EVF),
+  check(flags != RV8803_READ_ERROR && (flags & RV8803_FLAG_EVENT),
         F("Button press set the event flag"));
   check(digitalRead(interruptPin) == LOW, F("Button press asserted INT"));
 
@@ -53,11 +53,11 @@ void setup() {
   Serial.println(F("Release the EVI button now (30 seconds allowed)."));
   check(waitForButton(HIGH), F("Button returned HIGH after release"));
   flags = rtc.readFlagRegister();
-  check(flags != RV8803_READ_ERROR && (flags & RV8803_FLAG_EVF),
+  check(flags != RV8803_READ_ERROR && (flags & RV8803_FLAG_EVENT),
         F("Event remained latched after button release"));
   check(rtc.clearEvent(), F("Button event acknowledged"));
   flags = rtc.readFlagRegister();
-  check(flags != RV8803_READ_ERROR && !(flags & RV8803_FLAG_EVF),
+  check(flags != RV8803_READ_ERROR && !(flags & RV8803_FLAG_EVENT),
         F("Event flag cleared"));
   check(digitalRead(interruptPin) == HIGH, F("INT released after acknowledgement"));
   check(rtc.disableInterrupt(RV8803_InterruptEvent), F("Event interrupt disabled"));

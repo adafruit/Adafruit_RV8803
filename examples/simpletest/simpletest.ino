@@ -29,7 +29,7 @@ void setup() {
   uint8_t flags = rtc.readFlagRegister();
   if (flags == RV8803_READ_ERROR) {
     Serial.println(F("Could not read temperature-compensation status"));
-  } else if (flags & RV8803_FLAG_V1F) {
+  } else if (flags & RV8803_FLAG_TEMP_COMP_STOPPED) {
     Serial.println(F("Low voltage interrupted temperature compensation; clock accuracy may have been affected"));
   } else {
     Serial.println(F("No low-voltage interruption of temperature compensation recorded since flags were cleared"));

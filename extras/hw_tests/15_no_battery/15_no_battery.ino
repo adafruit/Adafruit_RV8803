@@ -31,7 +31,7 @@ void setup() {
   check(rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0)), F("Reference time set"));
   uint8_t flags = rtc.readFlagRegister();
   check(flags != RV8803_READ_ERROR, F("Initial flags read successfully"));
-  check(!(flags & (RV8803_FLAG_V1F | RV8803_FLAG_V2F)),
+  check(!(flags & (RV8803_FLAG_TEMP_COMP_STOPPED | RV8803_FLAG_TIME_INVALID)),
         F("Power flags initially clear"));
   check(!rtc.lostPower(), F("lostPower is false before removing VIN"));
 
@@ -57,20 +57,20 @@ void setup() {
   check(flags != RV8803_READ_ERROR, F("Post-cycle flags read successfully"));
   Serial.print(F("Flags after power cycle: 0x"));
   Serial.println(flags, HEX);
-  check(flags & RV8803_FLAG_V2F,
+  check(flags & RV8803_FLAG_TIME_INVALID,
         F("V2F asserts after power loss; if absent, check battery, other power, and discharge time"));
   check(rtc.lostPower(), F("lostPower detects invalid time after power loss"));
 
   check(rtc.begin(), F("Second begin succeeded"));
   flags = rtc.readFlagRegister();
-  check(flags != RV8803_READ_ERROR && (flags & RV8803_FLAG_V2F),
+  check(flags != RV8803_READ_ERROR && (flags & RV8803_FLAG_TIME_INVALID),
         F("begin preserves the power-loss evidence"));
 
   Serial.println();
   check(rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0)), F("Time reinitialized"));
   flags = rtc.readFlagRegister();
   check(flags != RV8803_READ_ERROR &&
-        !(flags & (RV8803_FLAG_V1F | RV8803_FLAG_V2F)),
+        !(flags & (RV8803_FLAG_TEMP_COMP_STOPPED | RV8803_FLAG_TIME_INVALID)),
         F("adjust cleared both power flags"));
   check(!rtc.lostPower(), F("lostPower is false after recovery"));
   DateTime before = rtc.now();
