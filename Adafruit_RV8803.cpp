@@ -1,0 +1,922 @@
+/*!
+ * @file Adafruit_RV8803.cpp
+ *
+ * @mainpage Adafruit RV-8803-C7 Real-Time Clock Library
+ *
+ * @section intro_sec Introduction
+ *
+ * This is a library for the RV-8803-C7 Real-Time Clock from Micro Crystal.
+ * The RV8803 is a high-accuracy (±3ppm) RTC with I2C interface, alarm,
+ * countdown timer, external event timestamp, CLKOUT, and offset calibration.
+ *
+ * @section dependencies Dependencies
+ *
+ * This library depends on:
+ * - Adafruit RTClib
+ * - Adafruit BusIO
+ *
+ * @section author Author
+ *
+ * Written by Limor 'ladyada' Fried with assistance from Claude Code
+ *
+ * @section license License
+ *
+ * MIT license, all text above must be included in any redistribution
+ */
+
+#include "Adafruit_RV8803.h"
+
+#include <Adafruit_BusIO_Register.h>
+
+/** @brief Release the owned I2C interface. */
+Adafruit_RV8803::~Adafruit_RV8803() {
+  delete i2c_dev;
+}
+
+/**
+ * @brief Initialize the RV8803 RTC
+ * @param wire Pointer to TwoWire instance (default &Wire)
+ * @return true if address and status reads succeed; false on I2C failure
+ * @note Wait for power-on reset to finish before calling. Does not set the
+ * time, clear status flags, or reset configuration. Call before other methods.
+ */
+bool Adafruit_RV8803::begin(TwoWire* wire) {
+  delete i2c_dev;
+  i2c_dev = new Adafruit_I2CDevice(RV8803_I2C_ADDRESS, wire);
+  if (!i2c_dev->begin()) {
+    return false;
+  }
+  // There is no device ID. Confirm that status can be read without disturbing
+  // a battery-backed clock or clearing evidence of power loss.
+  uint8_t flags;
+  return readFlagRegister(&flags);
+}
+
+/**
+ * @brief Read current date/time from RTC
+ * @return DateTime object with current time
+ * @note Repeats the calendar read at second 59 (manual section 4.12).
+ * Returns an invalid DateTime on I2C failure.
+ */
+DateTime Adafruit_RV8803::now() {
+  Adafruit_BusIO_Register time_reg(i2c_dev, RV8803_REG_SECONDS, 7);
+  uint8_t buffer[7];
+  if (!time_reg.read(buffer, sizeof(buffer))) {
+    return DateTime(2100, 1, 1); // Invalid DateTime; caller can use isValid().
+  }
+  // The calendar is NOT latched by a burst read. Manual section 4.12 requires
+  // another complete read at second 59 to avoid mixed minute/day/year data.
+  if (bcd2bin(buffer[0]) == 59) {
+    uint8_t confirm[7];
+    if (!time_reg.read(confirm, sizeof(confirm))) {
+      return DateTime(2100, 1, 1);
+    }
+    if (bcd2bin(confirm[0]) != 59) {
+      memcpy(buffer, confirm, sizeof(buffer));
+    }
+  }
+  for (uint8_t i = 0; i < sizeof(buffer); i++) {
+    if (i != 3 && ((buffer[i] & 0x0F) > 9 || (buffer[i] >> 4) > 9)) {
+      return DateTime(2100, 1, 1);
+    }
+  }
+  return DateTime(2000 + bcd2bin(buffer[6]), bcd2bin(buffer[5]),
+                  bcd2bin(buffer[4]), bcd2bin(buffer[2]), bcd2bin(buffer[1]),
+                  bcd2bin(buffer[0]));
+}
+
+/**
+ * @brief Set the RTC date/time
+ * @param dt DateTime object with desired time
+ * @return true after writing, restarting, and clearing V1F/V2F; false on error.
+ */
+bool Adafruit_RV8803::adjust(const DateTime& dt) {
+  if (!dt.isValid()) {
+    return false;
+  }
+  // Manual section 4.13: hold the prescaler while writing the calendar, then
+  // explicitly release RESET. RESET is not a self-clearing register reset.
+  Adafruit_BusIO_Register ctrl_reg(i2c_dev, RV8803_REG_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits stop(&ctrl_reg, 1, 0);
+  if (!stop.write(1)) {
+    return false;
+  }
+  uint8_t buffer[] = {
+      bin2bcd(dt.second()),     bin2bcd(dt.minute()),
+      bin2bcd(dt.hour()),       weekday2onehot(dt.dayOfTheWeek()),
+      bin2bcd(dt.day()),        bin2bcd(dt.month()),
+      bin2bcd(dt.year() - 2000)};
+  // Seconds through Year are written together while timekeeping is stopped.
+  Adafruit_BusIO_Register time_reg(i2c_dev, RV8803_REG_SECONDS, 7);
+  bool written = time_reg.write(buffer, sizeof(buffer));
+  bool started = stop.write(0); // Attempt to restart even if the write failed.
+  return written && started && clearPowerFlags();
+}
+
+/**
+ * @brief Check if RTC lost power and time is invalid
+ * @return true if V2F is set or an I2C read fails; false otherwise
+ * @note Use the boolean readFlagRegister() overload to distinguish a flagged
+ * power loss from an I2C error. An absent coin cell is not detected while VIN
+ * supplies the RTC.
+ */
+bool Adafruit_RV8803::lostPower() {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
+    return true;
+  }
+  return (flags & RV8803_FLAG_TIME_INVALID) != 0;
+}
+
+/**
+ * @brief Check that timekeeping is enabled and no time data loss is flagged
+ * @return true if RESET and V2F are clear; false on I2C error
+ */
+bool Adafruit_RV8803::isrunning() {
+  Adafruit_BusIO_Register control_reg(i2c_dev, RV8803_REG_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits prescaler_stopped(&control_reg, 1, 0);
+  // A failed RegisterBits read also returns 1, so it reports not running.
+  if (prescaler_stopped.read()) {
+    return false;
+  }
+  return !lostPower();
+}
+
+/**
+ * @brief Read hundredths of a second (0-99)
+ * @return Hundredths (0-99), or RV8803_READ_ERROR on read/BCD error
+ * @note This register is read-only and cleared when writing seconds
+ */
+uint8_t Adafruit_RV8803::getHundredths() {
+  Adafruit_BusIO_Register reg(i2c_dev, RV8803_REG_HUNDREDTHS, 1);
+  uint8_t value;
+  if (!reg.read(&value) || (value & 0x0F) > 9 || bcd2bin(value) > 99) {
+    return RV8803_READ_ERROR;
+  }
+  return bcd2bin(value);
+}
+
+/**
+ * @brief Read seconds (0-59)
+ * @return Seconds (0-59), or RV8803_READ_ERROR on read/BCD error
+ */
+uint8_t Adafruit_RV8803::getSeconds() {
+  Adafruit_BusIO_Register reg(i2c_dev, RV8803_REG_SECONDS, 1);
+  uint8_t value;
+  if (!reg.read(&value) || (value & 0x0F) > 9 || bcd2bin(value) > 59) {
+    return RV8803_READ_ERROR;
+  }
+  return bcd2bin(value);
+}
+
+/**
+ * @brief Read minutes (0-59)
+ * @return Minutes (0-59), or RV8803_READ_ERROR on read/BCD error
+ */
+uint8_t Adafruit_RV8803::getMinutes() {
+  Adafruit_BusIO_Register reg(i2c_dev, RV8803_REG_MINUTES, 1);
+  uint8_t value;
+  if (!reg.read(&value) || (value & 0x0F) > 9 || bcd2bin(value) > 59) {
+    return RV8803_READ_ERROR;
+  }
+  return bcd2bin(value);
+}
+
+/**
+ * @brief Read hours (0-23)
+ * @return Hours (0-23), or RV8803_READ_ERROR on read/BCD error
+ */
+uint8_t Adafruit_RV8803::getHours() {
+  Adafruit_BusIO_Register reg(i2c_dev, RV8803_REG_HOURS, 1);
+  uint8_t value;
+  if (!reg.read(&value) || (value & 0x0F) > 9 || bcd2bin(value) > 23) {
+    return RV8803_READ_ERROR;
+  }
+  return bcd2bin(value);
+}
+
+/**
+ * @brief Read weekday (0-6, 0=Sunday)
+ * @return Weekday (0=Sunday, 6=Saturday), or RV8803_READ_ERROR on error
+ */
+uint8_t Adafruit_RV8803::getWeekday() {
+  Adafruit_BusIO_Register weekday_reg(i2c_dev, RV8803_REG_WEEKDAY, 1);
+  uint8_t value;
+  if (!weekday_reg.read(&value) || value == 0 || value > 0x7F ||
+      (value & (value - 1))) {
+    return RV8803_READ_ERROR;
+  }
+  return onehot2weekday(value);
+}
+
+/**
+ * @brief Read day of month (1-31)
+ * @return Decoded date register, or RV8803_READ_ERROR on read/BCD error
+ */
+uint8_t Adafruit_RV8803::getDate() {
+  Adafruit_BusIO_Register reg(i2c_dev, RV8803_REG_DATE, 1);
+  uint8_t value;
+  if (!reg.read(&value) || (value & 0x0F) > 9 || bcd2bin(value) > 31) {
+    return RV8803_READ_ERROR;
+  }
+  return bcd2bin(value);
+}
+
+/**
+ * @brief Read month (1-12)
+ * @return Decoded month register, or RV8803_READ_ERROR on read/BCD error
+ */
+uint8_t Adafruit_RV8803::getMonth() {
+  Adafruit_BusIO_Register reg(i2c_dev, RV8803_REG_MONTH, 1);
+  uint8_t value;
+  if (!reg.read(&value) || (value & 0x0F) > 9 || bcd2bin(value) > 12) {
+    return RV8803_READ_ERROR;
+  }
+  return bcd2bin(value);
+}
+
+/**
+ * @brief Read year (2000-2099)
+ * @return Year (2000-2099), or zero on read/BCD error
+ */
+uint16_t Adafruit_RV8803::getYear() {
+  Adafruit_BusIO_Register year_reg(i2c_dev, RV8803_REG_YEAR, 1);
+  uint8_t value;
+  if (!year_reg.read(&value) || (value & 0x0F) > 9 || (value >> 4) > 9) {
+    return 0;
+  }
+  return 2000 + bcd2bin(value);
+}
+
+/**
+ * @brief Set the alarm time and mode
+ * @param dt DateTime with alarm time (minute, hour, day fields used)
+ * @param mode Alarm mode determining which fields participate
+ * @return true on success, false on I2C error
+ * @note AE bits are inverted: 0=enabled, 1=disabled
+ * @note Disable the alarm interrupt while changing match fields, then
+ * clearAlarm() before enabling it. To select multiple weekdays, call
+ * setAlarmWeekday() after setAlarm(), which writes a single weekday from dt.
+ */
+bool Adafruit_RV8803::setAlarm(const DateTime& dt, rv8803_alarm_mode_t mode) {
+  bool match_minutes = true;
+  bool match_hours = true;
+  bool match_day = true;
+  switch (mode) {
+    case RV8803_A_MinHourDay:
+      break;
+    case RV8803_A_HourDay:
+      match_minutes = false;
+      break;
+    case RV8803_A_MinDay:
+      match_hours = false;
+      break;
+    case RV8803_A_Day:
+      match_minutes = false;
+      match_hours = false;
+      break;
+    case RV8803_A_HourMin:
+      match_day = false;
+      break;
+    case RV8803_A_Hour:
+      match_minutes = false;
+      match_day = false;
+      break;
+    case RV8803_A_Minute:
+      match_hours = false;
+      match_day = false;
+      break;
+    case RV8803_A_EveryMinute:
+      match_minutes = false;
+      match_hours = false;
+      match_day = false;
+      break;
+  }
+
+  // Set the minute and whether it participates in the alarm match.
+  // The hardware's AE bits use 1 to ignore a field and 0 to match it.
+  Adafruit_BusIO_Register min_alarm_reg(i2c_dev, RV8803_REG_MINUTES_ALARM, 1);
+  Adafruit_BusIO_RegisterBits alarm_minutes(&min_alarm_reg, 7, 0);
+  Adafruit_BusIO_RegisterBits ignore_minutes(&min_alarm_reg, 1, 7);
+  if (!alarm_minutes.write(bin2bcd(dt.minute()))) {
+    return false;
+  }
+  if (!ignore_minutes.write(!match_minutes)) {
+    return false;
+  }
+
+  // Set the hour while preserving GP0.
+  Adafruit_BusIO_Register hours_alarm_reg(i2c_dev, RV8803_REG_HOURS_ALARM, 1);
+  Adafruit_BusIO_RegisterBits alarm_hours(&hours_alarm_reg, 6, 0);
+  Adafruit_BusIO_RegisterBits ignore_hours(&hours_alarm_reg, 1, 7);
+  if (!alarm_hours.write(bin2bcd(dt.hour()))) {
+    return false;
+  }
+  if (!ignore_hours.write(!match_hours)) {
+    return false;
+  }
+
+  // The extension register selects date or weekday matching.
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits date_mode(&ext_reg, 1, 6);
+
+  // Update the selected day field. Date mode must preserve GP1.
+  Adafruit_BusIO_Register wd_alarm_reg(i2c_dev, RV8803_REG_WEEKDAY_DATE_ALARM,
+                                       1);
+  Adafruit_BusIO_RegisterBits ignore_day(&wd_alarm_reg, 1, 7);
+  if (date_mode.read()) {
+    Adafruit_BusIO_RegisterBits alarm_date(&wd_alarm_reg, 6, 0);
+    if (!alarm_date.write(bin2bcd(dt.day()))) {
+      return false;
+    }
+  } else {
+    Adafruit_BusIO_RegisterBits alarm_weekdays(&wd_alarm_reg, 7, 0);
+    if (!alarm_weekdays.write(weekday2onehot(dt.dayOfTheWeek()))) {
+      return false;
+    }
+  }
+  return ignore_day.write(!match_day);
+}
+
+/**
+ * @brief Read the current alarm settings
+ * @return DateTime with alarm minute, hour, and day fields
+ * @note This is a field container, not a complete calendar timestamp.
+ * Year/month are 2000/1. In weekday mode day() is the lowest selected weekday
+ * (0-6), so Sunday produces day() == 0 and an invalid calendar DateTime. This
+ * does not preserve a multi-day mask or define a separate I2C-error result.
+ */
+DateTime Adafruit_RV8803::getAlarm() {
+  // Read the time fields without the alarm-enable or GP bits.
+  Adafruit_BusIO_Register min_alarm_reg(i2c_dev, RV8803_REG_MINUTES_ALARM, 1);
+  Adafruit_BusIO_RegisterBits alarm_minutes(&min_alarm_reg, 7, 0);
+  uint8_t minutes = bcd2bin(alarm_minutes.read());
+
+  Adafruit_BusIO_Register hours_alarm_reg(i2c_dev, RV8803_REG_HOURS_ALARM, 1);
+  Adafruit_BusIO_RegisterBits alarm_hours(&hours_alarm_reg, 6, 0);
+  uint8_t hours = bcd2bin(alarm_hours.read());
+
+  // The extension register selects which day field to read.
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits date_mode(&ext_reg, 1, 6);
+  Adafruit_BusIO_Register wd_alarm_reg(i2c_dev, RV8803_REG_WEEKDAY_DATE_ALARM,
+                                       1);
+  uint8_t day;
+  if (date_mode.read()) {
+    Adafruit_BusIO_RegisterBits alarm_date(&wd_alarm_reg, 6, 0);
+    day = bcd2bin(alarm_date.read());
+  } else {
+    Adafruit_BusIO_RegisterBits alarm_weekdays(&wd_alarm_reg, 7, 0);
+    day = onehot2weekday(alarm_weekdays.read());
+  }
+
+  // This DateTime is a container for alarm fields, not a full timestamp.
+  return DateTime(2000, 1, day, hours, minutes, 0);
+}
+
+/**
+ * @brief Set weekday alarm with multi-day mask (WADA=0)
+ * @param weekday_mask Weekday bitmask (bit 0=Sunday, bit 6=Saturday)
+ * @return true on success; false for an empty/invalid mask or write failure
+ * @note Sets WADA=0 for weekday mode
+ */
+bool Adafruit_RV8803::setAlarmWeekday(uint8_t weekday_mask) {
+  if (weekday_mask == 0 || weekday_mask > 0x7F) {
+    return false;
+  }
+  // Set WADA=0 for weekday mode
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits wada(&ext_reg, 1, 6);
+  if (!wada.write(0)) {
+    return false;
+  }
+
+  // Update the weekday field, preserving AE.
+  Adafruit_BusIO_Register wd_alarm_reg(i2c_dev, RV8803_REG_WEEKDAY_DATE_ALARM,
+                                       1);
+  Adafruit_BusIO_RegisterBits alarm_weekdays(&wd_alarm_reg, 7, 0);
+  return alarm_weekdays.write(weekday_mask);
+}
+
+/**
+ * @brief Set date alarm (WADA=1)
+ * @param date Day of month (1-31)
+ * @return true on success; false for a date outside 1-31 or write failure
+ * @note Sets WADA=1 for date mode
+ */
+bool Adafruit_RV8803::setAlarmDate(uint8_t date) {
+  if (date < 1 || date > 31) {
+    return false;
+  }
+  // Set WADA=1 for date mode
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits wada(&ext_reg, 1, 6);
+  if (!wada.write(1)) {
+    return false;
+  }
+
+  // Update the date field, preserving AE and GP1.
+  Adafruit_BusIO_Register wd_alarm_reg(i2c_dev, RV8803_REG_WEEKDAY_DATE_ALARM,
+                                       1);
+  Adafruit_BusIO_RegisterBits alarm_date(&wd_alarm_reg, 6, 0);
+  return alarm_date.write(bin2bcd(date));
+}
+
+/**
+ * @brief Get the current alarm mode
+ * @return Live alarm mode, or RV8803_READ_ERROR cast to the enum on error
+ */
+rv8803_alarm_mode_t Adafruit_RV8803::getAlarmMode() {
+  // AE bits are configuration in hardware, including after another begin().
+  Adafruit_BusIO_Register alarm_reg(i2c_dev, RV8803_REG_MINUTES_ALARM, 3);
+  rv8803_alarm_register_t alarms[3];
+  if (!alarm_reg.read((uint8_t*)alarms, sizeof(alarms))) {
+    return (rv8803_alarm_mode_t)RV8803_READ_ERROR;
+  }
+  // Decode the checked snapshot: RegisterBits reads cannot report failure.
+  bool match_minutes = !alarms[0].fields.ignore;
+  bool match_hours = !alarms[1].fields.ignore;
+  bool match_day = !alarms[2].fields.ignore;
+
+  if (match_day) {
+    if (match_minutes && match_hours) {
+      return RV8803_A_MinHourDay;
+    }
+    if (match_minutes) {
+      return RV8803_A_MinDay;
+    }
+    if (match_hours) {
+      return RV8803_A_HourDay;
+    }
+    return RV8803_A_Day;
+  }
+  if (match_minutes && match_hours) {
+    return RV8803_A_HourMin;
+  }
+  if (match_minutes) {
+    return RV8803_A_Minute;
+  }
+  if (match_hours) {
+    return RV8803_A_Hour;
+  }
+  return RV8803_A_EveryMinute;
+}
+
+/**
+ * @brief Check if alarm has fired
+ * @return true if AF is set; false if clear or an I2C read fails
+ */
+bool Adafruit_RV8803::alarmFired() {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
+    return false;
+  }
+  return (flags & RV8803_FLAG_ALARM) != 0;
+}
+
+/**
+ * @brief Clear the alarm flag
+ * @return true on success
+ */
+bool Adafruit_RV8803::clearAlarm() {
+  // Write zero only to the requested flag; preserve flags set during I2C
+  // access.
+  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_ALARM);
+}
+
+/**
+ * @brief Enable the countdown timer
+ * @param clock Timer clock source (frequency)
+ * @param value Countdown ticks (1-4095); zero is rejected
+ * @return true on success; false for counts outside 1-4095 or write failure
+ * @note Preserves GP2-GP5. Each call restarts the timer. Manual section 4.5.3
+ * allows an extra source-clock tick in the first interval (plus 61 us at
+ * 4096 Hz). Automatic reloads take value / clock seconds. At 1 Hz, value=5
+ * initially takes 5-6 seconds, then repeats every 5 seconds. The hardware
+ * treats a zero preset as stopped.
+ */
+bool Adafruit_RV8803::enableCountdownTimer(rv8803_timer_clock_t clock,
+                                           uint16_t value) {
+  if (value == 0 || value > 4095) {
+    return false;
+  }
+  // Manual section 4.5.2: stop before changing the preset or source clock.
+  if (!disableCountdownTimer()) {
+    return false;
+  }
+
+  // Write lower 8 bits
+  Adafruit_BusIO_Register tc0_reg(i2c_dev, RV8803_REG_TIMER_COUNTER0, 1);
+  if (!tc0_reg.write(value & 0xFF)) {
+    return false;
+  }
+
+  // Write upper 4 bits, preserving GP2-GP5
+  Adafruit_BusIO_Register tc1_reg(i2c_dev, RV8803_REG_TIMER_COUNTER1, 1);
+  Adafruit_BusIO_RegisterBits timer_upper(&tc1_reg, 4, 0);
+  if (!timer_upper.write((value >> 8) & 0x0F)) {
+    return false;
+  }
+
+  // Set TD bits and enable timer (TE=1)
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits td(&ext_reg, 2, 0); // TD is bits 0-1
+  Adafruit_BusIO_RegisterBits te(&ext_reg, 1, 4); // TE is bit 4
+  if (!td.write(clock)) {
+    return false;
+  }
+  return te.write(1);
+}
+
+/**
+ * @brief Disable the countdown timer
+ * @return true on success
+ */
+bool Adafruit_RV8803::disableCountdownTimer() {
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits te(&ext_reg, 1, 4); // TE is bit 4
+  return te.write(0);
+}
+
+/**
+ * @brief Read the countdown timer preset value
+ * @return 12-bit preset (not live countdown); 4095 can also indicate an I2C
+ * error
+ */
+uint16_t Adafruit_RV8803::getCountdownTimer() {
+  // Read both preset bytes together; upper four bits are GP storage.
+  Adafruit_BusIO_Register timer_reg(i2c_dev, RV8803_REG_TIMER_COUNTER0, 2);
+  Adafruit_BusIO_RegisterBits timer_preset(&timer_reg, 12, 0);
+  return timer_preset.read();
+}
+
+/**
+ * @brief Check if timer has fired
+ * @return true if TF is set; false if clear or an I2C read fails
+ */
+bool Adafruit_RV8803::timerFired() {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
+    return false;
+  }
+  return (flags & RV8803_FLAG_TIMER) != 0;
+}
+
+/**
+ * @brief Clear the timer flag
+ * @return true on success
+ */
+bool Adafruit_RV8803::clearTimer() {
+  // Write zero only to the requested flag; preserve flags set during I2C
+  // access.
+  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_TIMER);
+}
+
+/**
+ * @brief Set periodic update mode (second or minute)
+ * @param mode RV8803_UpdateSecond or RV8803_UpdateMinute
+ * @return true on success
+ */
+bool Adafruit_RV8803::setUpdateMode(rv8803_update_mode_t mode) {
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits usel(&ext_reg, 1, 5); // USEL is bit 5
+  return usel.write(mode == RV8803_UpdateMinute);
+}
+
+/**
+ * @brief Check if periodic update flag is set
+ * @return true if UF is set; false if clear or an I2C read fails
+ */
+bool Adafruit_RV8803::updateFired() {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
+    return false;
+  }
+  return (flags & RV8803_FLAG_UPDATE) != 0;
+}
+
+/**
+ * @brief Clear the periodic update flag
+ * @return true on success
+ */
+bool Adafruit_RV8803::clearUpdate() {
+  // Write zero only to the requested flag; preserve flags set during I2C
+  // access.
+  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_UPDATE);
+}
+
+/**
+ * @brief Configure external event detection
+ * @param rising_edge true for rising edge, false for falling edge
+ * @param filter Event filter time
+ * @return true on success
+ */
+bool Adafruit_RV8803::configureEvent(bool rising_edge,
+                                     rv8803_event_filter_t filter) {
+  Adafruit_BusIO_Register evctrl_reg(i2c_dev, RV8803_REG_EVENT_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits ehl(&evctrl_reg, 1, 6); // EHL is bit 6
+  Adafruit_BusIO_RegisterBits et(&evctrl_reg, 2, 4);  // ET is bits 4-5
+  if (!ehl.write(rising_edge)) {
+    return false;
+  }
+  return et.write(filter);
+}
+
+/**
+ * @brief Enable or disable event timestamp capture
+ * @param enable true to enable capture
+ * @return true on success
+ * @note Capture contains only seconds and hundredths within a minute. Keep
+ * event reset disabled when the captured timestamp must be retained.
+ */
+bool Adafruit_RV8803::enableEventCapture(bool enable) {
+  Adafruit_BusIO_Register evctrl_reg(i2c_dev, RV8803_REG_EVENT_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits ecp(&evctrl_reg, 1, 7); // ECP is bit 7
+  return ecp.write(enable);
+}
+
+/**
+ * @brief Arm or disarm one-shot fractional-second reset on an event
+ * @param enable true to arm the next event; false to disarm
+ * @return true on success
+ * @note ERST arms a one-shot reset: the next event clears fractional seconds
+ * and both capture registers, then clears ERST automatically.
+ */
+bool Adafruit_RV8803::enableEventReset(bool enable) {
+  Adafruit_BusIO_Register evctrl_reg(i2c_dev, RV8803_REG_EVENT_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits erst(&evctrl_reg, 1, 0); // ERST is bit 0
+  return erst.write(enable);
+}
+
+/**
+ * @brief Read both external-event capture registers in one transaction
+ * @param timestamp Destination for seconds and hundredths; unchanged on error
+ * @return true on success; false for a null destination, read error, or bad BCD
+ * @note A later input event can replace the capture. Disable capture before
+ * reading if events can recur during I2C access.
+ */
+bool Adafruit_RV8803::getEventTimestamp(rv8803_timestamp_t* timestamp) {
+  if (!timestamp) {
+    return false;
+  }
+  Adafruit_BusIO_Register reg(i2c_dev, RV8803_REG_HUNDREDTHS_CP, 2);
+  uint8_t values[2];
+  if (!reg.read(values, sizeof(values)) || (values[0] & 0x0F) > 9 ||
+      bcd2bin(values[0]) > 99 || (values[1] & 0x0F) > 9 ||
+      bcd2bin(values[1]) > 59) {
+    return false;
+  }
+  timestamp->hundredths = bcd2bin(values[0]);
+  timestamp->seconds = bcd2bin(values[1]);
+  return true;
+}
+
+/**
+ * @brief Read captured hundredths from external event
+ * @return Captured hundredths (0-99), or RV8803_READ_ERROR on error
+ */
+uint8_t Adafruit_RV8803::getEventHundredths() {
+  Adafruit_BusIO_Register reg(i2c_dev, RV8803_REG_HUNDREDTHS_CP, 1);
+  uint8_t value;
+  if (!reg.read(&value) || (value & 0x0F) > 9 || bcd2bin(value) > 99) {
+    return RV8803_READ_ERROR;
+  }
+  return bcd2bin(value);
+}
+
+/**
+ * @brief Read captured seconds from external event
+ * @return Captured seconds (0-59), or RV8803_READ_ERROR on error
+ */
+uint8_t Adafruit_RV8803::getEventSeconds() {
+  Adafruit_BusIO_Register reg(i2c_dev, RV8803_REG_SECONDS_CP, 1);
+  uint8_t value;
+  if (!reg.read(&value) || (value & 0x0F) > 9 || bcd2bin(value) > 59) {
+    return RV8803_READ_ERROR;
+  }
+  return bcd2bin(value);
+}
+
+/**
+ * @brief Check if external event flag is set
+ * @return true if EVF is set; false if clear or an I2C read fails
+ */
+bool Adafruit_RV8803::eventFired() {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
+    return false;
+  }
+  return (flags & RV8803_FLAG_EVENT) != 0;
+}
+
+/**
+ * @brief Clear the external event flag
+ * @return true on success
+ */
+bool Adafruit_RV8803::clearEvent() {
+  // Write zero only to the requested flag; preserve flags set during I2C
+  // access.
+  return writeFlagRegister(RV8803_FLAG_MASK & ~RV8803_FLAG_EVENT);
+}
+
+/**
+ * @brief Enable an interrupt source
+ * @param source Interrupt source to enable
+ * @return true on success
+ */
+bool Adafruit_RV8803::enableInterrupt(rv8803_interrupt_t source) {
+  Adafruit_BusIO_Register ctrl_reg(i2c_dev, RV8803_REG_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits interrupt_enable(&ctrl_reg, 1, source);
+  return interrupt_enable.write(1);
+}
+
+/**
+ * @brief Disable an interrupt source
+ * @param source Interrupt source to disable
+ * @return true on success
+ */
+bool Adafruit_RV8803::disableInterrupt(rv8803_interrupt_t source) {
+  Adafruit_BusIO_Register ctrl_reg(i2c_dev, RV8803_REG_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits interrupt_enable(&ctrl_reg, 1, source);
+  return interrupt_enable.write(0);
+}
+
+/**
+ * @brief Set the CLKOUT frequency
+ * @param mode Square wave frequency mode
+ * @return true on success
+ * @note CLKOE pin must be tied HIGH for CLKOUT to work
+ */
+bool Adafruit_RV8803::writeSqwPinMode(rv8803_sqw_mode_t mode) {
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits fd(&ext_reg, 2, 2); // FD is bits 2-3
+  return fd.write(mode);
+}
+
+/**
+ * @brief Read the current CLKOUT frequency setting
+ * @return Frequency selection, or enum value 3 after an I2C read error
+ */
+rv8803_sqw_mode_t Adafruit_RV8803::readSqwPinMode() {
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits fd(&ext_reg, 2, 2); // FD is bits 2-3
+  return (rv8803_sqw_mode_t)fd.read();
+}
+
+/**
+ * @brief Set the offset calibration value
+ * @param offset 6-bit two's complement (-32 to +31), 0.2384 ppm/step
+ * @return true on success
+ * @note Values outside -32 to +31 are clamped to the nearest endpoint.
+ */
+bool Adafruit_RV8803::calibrate(int8_t offset) {
+  // Clamp to 6-bit signed range
+  if (offset > 31)
+    offset = 31;
+  if (offset < -32)
+    offset = -32;
+
+  Adafruit_BusIO_Register offset_reg(i2c_dev, RV8803_REG_OFFSET, 1);
+  Adafruit_BusIO_RegisterBits offset_bits(&offset_reg, 6, 0);
+  return offset_bits.write(offset);
+}
+
+/**
+ * @brief Read the current calibration offset
+ * @return Signed offset (-32 to +31); -1 can also indicate an I2C error
+ */
+int8_t Adafruit_RV8803::getCalibration() {
+  Adafruit_BusIO_Register offset_reg(i2c_dev, RV8803_REG_OFFSET, 1);
+  Adafruit_BusIO_RegisterBits offset_bits(&offset_reg, 6, 0);
+  uint8_t regval = offset_bits.read();
+  // Sign-extend from 6 bits
+  if (regval & 0x20) {
+    return (int8_t)(regval | 0xC0);
+  }
+  return (int8_t)regval;
+}
+
+/**
+ * @brief Check if temperature compensation was interrupted
+ * @return true if V1F is set or an I2C read fails; false otherwise
+ */
+bool Adafruit_RV8803::tempCompStopped() {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
+    return true;
+  }
+  return (flags & RV8803_FLAG_TEMP_COMP_STOPPED) != 0;
+}
+
+/**
+ * @brief Clear both power flags (V1F and V2F)
+ * @return true on success
+ */
+bool Adafruit_RV8803::clearPowerFlags() {
+  // V1F/V2F clear together. Preserve all interrupt flags, including new events.
+  return writeFlagRegister(RV8803_FLAG_MASK & ~(RV8803_FLAG_TEMP_COMP_STOPPED |
+                                                RV8803_FLAG_TIME_INVALID));
+}
+
+/**
+ * @brief Write to the 1-byte RAM register
+ * @param value Byte to store
+ * @return true on success
+ */
+bool Adafruit_RV8803::writeRAM(uint8_t value) {
+  Adafruit_BusIO_Register ram_reg(i2c_dev, RV8803_REG_RAM, 1);
+  return ram_reg.write(value);
+}
+
+/**
+ * @brief Read from the 1-byte RAM register
+ * @return Stored byte; 0xFF can also indicate an I2C read error
+ */
+uint8_t Adafruit_RV8803::readRAM() {
+  Adafruit_BusIO_Register ram_reg(i2c_dev, RV8803_REG_RAM, 1);
+  return ram_reg.read();
+}
+
+/**
+ * @brief Read the Flag Register (0x0E)
+ * @return Register value, or RV8803_READ_ERROR on I2C error
+ */
+uint8_t Adafruit_RV8803::readFlagRegister() {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
+    return RV8803_READ_ERROR;
+  }
+  return flags;
+}
+
+/**
+ * @brief Read the Flag Register (0x0E) with explicit success status
+ * @param flags Destination for the register value; unchanged on failure
+ * @return true on success, false on I2C failure or a null destination
+ */
+bool Adafruit_RV8803::readFlagRegister(uint8_t* flags) {
+  if (!flags) {
+    return false;
+  }
+  Adafruit_BusIO_Register flag_reg(i2c_dev, RV8803_REG_FLAG, 1);
+  uint8_t value;
+  if (!flag_reg.read(&value, sizeof(value))) {
+    return false;
+  }
+  *flags = value;
+  return true;
+}
+
+/**
+ * @brief Write to the Flag Register (0x0E)
+ * @param value Value to write (write 0 to clear flags)
+ * @return true on success
+ * @note Write zero to each flag to clear and one to preserve it. Clearing
+ * either V1F or V2F clears both power flags. Reserved bits are masked off.
+ */
+bool Adafruit_RV8803::writeFlagRegister(uint8_t value) {
+  Adafruit_BusIO_Register flag_reg(i2c_dev, RV8803_REG_FLAG, 1);
+  return flag_reg.write(value & RV8803_FLAG_MASK);
+}
+
+/**
+ * @brief Perform software reset
+ * @return true on success
+ * @note Resets and releases the prescaler; preserves time/calendar and
+ * settings.
+ */
+bool Adafruit_RV8803::reset() {
+  // Manual section 4.13: RESET holds the prescaler; it does not erase registers
+  // or clear itself. Pulse it to restart a full second without losing the date.
+  Adafruit_BusIO_Register ctrl_reg(i2c_dev, RV8803_REG_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits reset_bit(&ctrl_reg, 1, 0);
+  if (!reset_bit.write(1)) {
+    return false;
+  }
+  return reset_bit.write(0);
+}
+
+/**
+ * @brief Convert weekday (0-6) to one-hot encoding
+ * @param day Weekday number (0=Sunday, 6=Saturday)
+ * @return One-hot encoded byte (bit 0 = Sunday)
+ */
+uint8_t Adafruit_RV8803::weekday2onehot(uint8_t day) {
+  if (day > 6)
+    day = 0;
+  return 1 << day;
+}
+
+/**
+ * @brief Convert one-hot encoding to weekday (0-6)
+ * @param bits One-hot encoded byte
+ * @return Weekday number (0=Sunday, 6=Saturday)
+ */
+uint8_t Adafruit_RV8803::onehot2weekday(uint8_t bits) {
+  for (uint8_t i = 0; i < 7; i++) {
+    if (bits & (1 << i)) {
+      return i;
+    }
+  }
+  return 0; // Default to Sunday if no bit set
+}
