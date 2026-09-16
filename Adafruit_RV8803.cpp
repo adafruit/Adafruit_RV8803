@@ -48,7 +48,8 @@ bool Adafruit_RV8803::begin(TwoWire* wire) {
   }
   // There is no device ID. Confirm that status can be read without disturbing
   // a battery-backed clock or clearing evidence of power loss.
-  return readFlagRegister() != RV8803_READ_ERROR;
+  uint8_t flags;
+  return readFlagRegister(&flags);
 }
 
 /**
@@ -115,14 +116,13 @@ bool Adafruit_RV8803::adjust(const DateTime& dt) {
 /**
  * @brief Check if RTC lost power and time is invalid
  * @return true if V2F is set or an I2C read fails; false otherwise
- * @note Use readFlagRegister() to distinguish a flagged power loss from an I2C
- * error. An absent coin cell is not detected while VIN supplies the RTC.
+ * @note Use the boolean readFlagRegister() overload to distinguish a flagged
+ * power loss from an I2C error. An absent coin cell is not detected while VIN
+ * supplies the RTC.
  */
 bool Adafruit_RV8803::lostPower() {
-  uint8_t flags = readFlagRegister();
-  // Check the full-byte failure sentinel before decoding a field: RegisterBits
-  // would turn a failed read into an asserted flag.
-  if (flags == RV8803_READ_ERROR) {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
     return true;
   }
   return (flags & RV8803_FLAG_TIME_INVALID) != 0;
@@ -134,9 +134,12 @@ bool Adafruit_RV8803::lostPower() {
  */
 bool Adafruit_RV8803::isrunning() {
   uint8_t control = readControlRegister();
-  uint8_t flags = readFlagRegister();
-  return control != RV8803_READ_ERROR && flags != RV8803_READ_ERROR &&
-         !(control & RV8803_CTRL_RESET) && !(flags & RV8803_FLAG_TIME_INVALID);
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
+    return false;
+  }
+  return control != RV8803_READ_ERROR && !(control & RV8803_CTRL_RESET) &&
+         !(flags & RV8803_FLAG_TIME_INVALID);
 }
 
 /**
@@ -426,10 +429,8 @@ rv8803_alarm_mode_t Adafruit_RV8803::getAlarmMode() {
  * @return true if AF is set; false if clear or an I2C read fails
  */
 bool Adafruit_RV8803::alarmFired() {
-  uint8_t flags = readFlagRegister();
-  // Check the full-byte failure sentinel before decoding a field: RegisterBits
-  // would turn a failed read into an asserted flag.
-  if (flags == RV8803_READ_ERROR) {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
     return false;
   }
   return (flags & RV8803_FLAG_ALARM) != 0;
@@ -518,10 +519,8 @@ uint16_t Adafruit_RV8803::getCountdownTimer() {
  * @return true if TF is set; false if clear or an I2C read fails
  */
 bool Adafruit_RV8803::timerFired() {
-  uint8_t flags = readFlagRegister();
-  // Check the full-byte failure sentinel before decoding a field: RegisterBits
-  // would turn a failed read into an asserted flag.
-  if (flags == RV8803_READ_ERROR) {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
     return false;
   }
   return (flags & RV8803_FLAG_TIMER) != 0;
@@ -553,10 +552,8 @@ bool Adafruit_RV8803::setUpdateMode(rv8803_update_mode_t mode) {
  * @return true if UF is set; false if clear or an I2C read fails
  */
 bool Adafruit_RV8803::updateFired() {
-  uint8_t flags = readFlagRegister();
-  // Check the full-byte failure sentinel before decoding a field: RegisterBits
-  // would turn a failed read into an asserted flag.
-  if (flags == RV8803_READ_ERROR) {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
     return false;
   }
   return (flags & RV8803_FLAG_UPDATE) != 0;
@@ -669,10 +666,8 @@ uint8_t Adafruit_RV8803::getEventSeconds() {
  * @return true if EVF is set; false if clear or an I2C read fails
  */
 bool Adafruit_RV8803::eventFired() {
-  uint8_t flags = readFlagRegister();
-  // Check the full-byte failure sentinel before decoding a field: RegisterBits
-  // would turn a failed read into an asserted flag.
-  if (flags == RV8803_READ_ERROR) {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
     return false;
   }
   return (flags & RV8803_FLAG_EVENT) != 0;
@@ -778,10 +773,8 @@ int8_t Adafruit_RV8803::getCalibration() {
  * @return true if V1F is set or an I2C read fails; false otherwise
  */
 bool Adafruit_RV8803::tempCompStopped() {
-  uint8_t flags = readFlagRegister();
-  // Check the full-byte failure sentinel before decoding a field: RegisterBits
-  // would turn a failed read into an asserted flag.
-  if (flags == RV8803_READ_ERROR) {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
     return true;
   }
   return (flags & RV8803_FLAG_TEMP_COMP_STOPPED) != 0;
