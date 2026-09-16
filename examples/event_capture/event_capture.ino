@@ -18,9 +18,8 @@ void setup() {
   }
 
   // Inspect saved flags before setting the clock or clearing any event.
-  // Read the register directly so an I2C error cannot look like "no event".
-  uint8_t flags = rtc.readFlagRegister();
-  if (flags == RV8803_READ_ERROR) {
+  uint8_t flags;
+  if (!rtc.readFlagRegister(&flags)) {
     halt(F("Could not read the saved event status"));
   }
   if (flags & RV8803_FLAG_V2F) {

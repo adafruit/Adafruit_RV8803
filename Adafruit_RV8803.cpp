@@ -905,8 +905,29 @@ bool Adafruit_RV8803::writeExtensionRegister(uint8_t value) {
  * @return Register value, or RV8803_READ_ERROR on I2C error
  */
 uint8_t Adafruit_RV8803::readFlagRegister() {
+  uint8_t flags;
+  if (!readFlagRegister(&flags)) {
+    return RV8803_READ_ERROR;
+  }
+  return flags;
+}
+
+/**
+ * @brief Read the Flag Register (0x0E) with explicit success status
+ * @param flags Destination for the register value; unchanged on failure
+ * @return true on success, false on I2C failure or a null destination
+ */
+bool Adafruit_RV8803::readFlagRegister(uint8_t* flags) {
+  if (!flags) {
+    return false;
+  }
   Adafruit_BusIO_Register flag_reg(i2c_dev, RV8803_REG_FLAG, 1);
-  return flag_reg.read();
+  uint8_t value;
+  if (!flag_reg.read(&value, sizeof(value))) {
+    return false;
+  }
+  *flags = value;
+  return true;
 }
 
 /**

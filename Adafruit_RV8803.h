@@ -284,6 +284,7 @@ class Adafruit_RV8803 : public RTC_I2C {
   uint8_t readExtensionRegister();
   bool writeExtensionRegister(uint8_t value);
   uint8_t readFlagRegister();
+  bool readFlagRegister(uint8_t* flags);
   bool writeFlagRegister(uint8_t value);
   uint8_t readControlRegister();
   bool writeControlRegister(uint8_t value);
