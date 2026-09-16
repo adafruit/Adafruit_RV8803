@@ -3,7 +3,8 @@
  * @brief Hardware test 07: SQW Pin Modes
  *
  * Tests CLKOUT frequency by bit-bang counting edges on D5.
- * CLKOE on D2 is active HIGH.
+ * CLKOE on D2 is active HIGH; add 10 kohm from CLOE to switched DUT VIN.
+ * D2 pulls LOW to disable or releases to INPUT to enable; never drive HIGH.
  * Also verifies read-modify-write preserves other Extension register bits.
  *
  * Wiring: SQWAVE -> D5, CLKOE -> D2
@@ -65,8 +66,8 @@ void setup() {
   uint8_t total = 8;
 
   pinMode(SQW_PIN, INPUT);
-  pinMode(CLKOE_PIN, OUTPUT);
-  digitalWrite(CLKOE_PIN, HIGH); // Active HIGH — enable CLKOUT
+  digitalWrite(CLKOE_PIN, LOW); // Keep the output latch and internal pull-up off.
+  pinMode(CLKOE_PIN, INPUT); // External pull-up enables CLKOUT.
 
   // Test 1: 1Hz — count edges over 3 seconds, expect ~3
   Serial.print(F("Test 1: 1Hz output on D5 ... "));
@@ -189,7 +190,7 @@ void setup() {
   Serial.print(F("Test 7: CLKOE LOW disables CLKOUT ... "));
   rtc.writeSqwPinMode(RV8803_SquareWave1kHz);
   delay(10);
-  digitalWrite(CLKOE_PIN, LOW); // Disable CLKOUT
+  pinMode(CLKOE_PIN, OUTPUT); // The LOW latch disables CLKOUT.
   delay(10);
   unsigned long edgesOff = countEdges(200);
   Serial.print(F("edges in 200ms = "));
@@ -203,7 +204,7 @@ void setup() {
 
   // Test 8: CLKOE HIGH re-enables CLKOUT
   Serial.print(F("Test 8: CLKOE HIGH re-enables CLKOUT ... "));
-  digitalWrite(CLKOE_PIN, HIGH); // Re-enable CLKOUT
+  pinMode(CLKOE_PIN, INPUT); // Release to the external pull-up.
   delay(10);
   unsigned long edgesOn = countEdges(200);
   Serial.print(F("edges in 200ms = "));
@@ -215,8 +216,9 @@ void setup() {
     Serial.println(F(" FAIL"));
   }
 
-  // Clean up
+  // Clean up: leave CLKOUT disabled.
   rtc.writeSqwPinMode(RV8803_SquareWave32kHz);
+  pinMode(CLKOE_PIN, OUTPUT);
 
   Serial.println();
   Serial.print(passed);

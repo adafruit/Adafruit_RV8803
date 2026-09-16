@@ -18,6 +18,12 @@ Insert the RV8803 QT rev A header into consecutive rows as follows:
 | 7 | EVI | D4 |
 | 8 | SQW | D5 |
 
+For a hand-wired Metro Mini, use the same MCU pin assignments in the table.
+Connect Metro A0 through **330 ohm** to breakout VIN and add **10 kohm from
+CLOE to that switched breakout VIN**. Connect D2 directly to CLOE. The current
+SQW sketches pull CLOE LOW or release it to INPUT; they do not drive it HIGH.
+The 10 kohm pull-up is also required when using these sketches on Jumperless.
+
 These assignments match the existing sketches without code changes. VIN is
 powered only by A0 so the sketches can turn it off. Leave STEMMA QT and other
 external power connections unplugged. The Nano socket supplies the Nano's own
@@ -64,7 +70,7 @@ power sequence as the other sketches, then allow the existing 600 ms startup wai
 
 ## Test-specific handling
 
-- Tests `00`–`04`, `06`–`14`, and `sqw_diag` use this same wiring. For `06_ram`, set
+- Tests `00` through `04`, `06` through `11`, `14`, and `sqw_diag` use this same wiring. For `06_ram`, set
   `batteryInstalled` to match the actual coin cell; it currently defaults to true.
 - `15_no_battery` requires physically removing the coin cell. The same routes
   remain valid: the sketch disables pull-ups and auxiliary outputs before its

@@ -1,3 +1,4 @@
+// Add 10 kohm from CLOE to switched DUT VIN. D2 only pulls LOW or releases.
 #include <Adafruit_RV8803.h>
 #include <Adafruit_BusIO_Register.h>
 
@@ -41,25 +42,18 @@ void setup() {
   Serial.print(F("FD bits: "));
   Serial.println(rtc.readSqwPinMode());
 
-  // Try all CLKOE states, hold each for 5 seconds so scope can see
-  Serial.println(F("D2 as OUTPUT LOW for 5s... (scope SQWAVE now)"));
-  pinMode(2, OUTPUT);
+  // Pull CLOE LOW, then release it to the external VIN pull-up.
+  Serial.println(F("CLOE LOW for 5s... (scope SQWAVE now)"));
   digitalWrite(2, LOW);
+  pinMode(2, OUTPUT);
   delay(5000);
 
-  Serial.println(F("D2 as OUTPUT HIGH for 5s... (scope SQWAVE now)"));
-  digitalWrite(2, HIGH);
-  delay(5000);
-
-  Serial.println(F("D2 as INPUT (floating) for 5s... (scope SQWAVE now)"));
+  Serial.println(F("CLOE released HIGH for 5s... (scope SQWAVE now)"));
   pinMode(2, INPUT);
   delay(5000);
 
-  Serial.println(F("D2 as INPUT_PULLUP for 5s... (scope SQWAVE now)"));
-  pinMode(2, INPUT_PULLUP);
-  delay(5000);
-
-  Serial.println(F("Done. D2 left as INPUT_PULLUP."));
+  pinMode(2, OUTPUT); // LOW latch: leave CLKOUT disabled.
+  Serial.println(F("Done. CLOE left LOW."));
 }
 
 void loop() {}
