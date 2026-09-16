@@ -694,7 +694,7 @@ bool Adafruit_RV8803::enableInterrupt(rv8803_interrupt_t source) {
   if (!ctrl_reg.read(&ctrl)) {
     return false;
   }
-  ctrl |= source;
+  bitSet(ctrl, source);
   return ctrl_reg.write(ctrl);
 }
 
@@ -709,7 +709,7 @@ bool Adafruit_RV8803::disableInterrupt(rv8803_interrupt_t source) {
   if (!ctrl_reg.read(&ctrl)) {
     return false;
   }
-  ctrl &= ~source;
+  bitClear(ctrl, source);
   return ctrl_reg.write(ctrl);
 }
 

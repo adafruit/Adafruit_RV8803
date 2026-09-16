@@ -172,12 +172,12 @@ typedef enum {
   RV8803_UpdateMinute = 0x01, /**< Update flag every minute */
 } rv8803_update_mode_t;
 
-/** Interrupt sources (bits in Control Register) */
+/** Interrupt sources (bit positions in Control Register, not masks) */
 typedef enum {
-  RV8803_InterruptUpdate = 0x20, /**< UIE — periodic update */
-  RV8803_InterruptTimer = 0x10,  /**< TIE — countdown timer */
-  RV8803_InterruptAlarm = 0x08,  /**< AIE — alarm */
-  RV8803_InterruptEvent = 0x04,  /**< EIE — external event */
+  RV8803_InterruptUpdate = 5, /**< UIE — periodic update */
+  RV8803_InterruptTimer = 4,  /**< TIE — countdown timer */
+  RV8803_InterruptAlarm = 3,  /**< AIE — alarm */
+  RV8803_InterruptEvent = 2,  /**< EIE — external event */
 } rv8803_interrupt_t;
 
 /** Captured external-event time within a minute (not a full date/time). */
