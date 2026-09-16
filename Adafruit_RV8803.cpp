@@ -259,61 +259,83 @@ uint16_t Adafruit_RV8803::getYear() {
  * setAlarmWeekday() after setAlarm(), which writes a single weekday from dt.
  */
 bool Adafruit_RV8803::setAlarm(const DateTime& dt, rv8803_alarm_mode_t mode) {
-  // Determine AE bit values based on mode
-  // Mode bits: [AE_WD][AE_H][AE_M] where 0=enabled, 1=disabled
-  uint8_t ae_m = (mode & 0x01) ? 1 : 0;
-  uint8_t ae_h = (mode & 0x02) ? 1 : 0;
-  uint8_t ae_wd = (mode & 0x04) ? 1 : 0;
+  bool match_minutes = true;
+  bool match_hours = true;
+  bool match_day = true;
+  switch (mode) {
+    case RV8803_A_MinHourDay:
+      break;
+    case RV8803_A_HourDay:
+      match_minutes = false;
+      break;
+    case RV8803_A_MinDay:
+      match_hours = false;
+      break;
+    case RV8803_A_Day:
+      match_minutes = false;
+      match_hours = false;
+      break;
+    case RV8803_A_HourMin:
+      match_day = false;
+      break;
+    case RV8803_A_Hour:
+      match_minutes = false;
+      match_day = false;
+      break;
+    case RV8803_A_Minute:
+      match_hours = false;
+      match_day = false;
+      break;
+    case RV8803_A_EveryMinute:
+      match_minutes = false;
+      match_hours = false;
+      match_day = false;
+      break;
+  }
 
-  // Minutes alarm register
+  // Set the minute and whether it participates in the alarm match.
+  // The hardware's AE bits use 1 to ignore a field and 0 to match it.
   Adafruit_BusIO_Register min_alarm_reg(i2c_dev, RV8803_REG_MINUTES_ALARM, 1);
-  Adafruit_BusIO_RegisterBits ae_m_bit(&min_alarm_reg, 1, 7);
-  uint8_t minutes_alarm = bin2bcd(dt.minute());
-  if (!min_alarm_reg.write(minutes_alarm)) {
+  Adafruit_BusIO_RegisterBits alarm_minutes(&min_alarm_reg, 7, 0);
+  Adafruit_BusIO_RegisterBits ignore_minutes(&min_alarm_reg, 1, 7);
+  if (!alarm_minutes.write(bin2bcd(dt.minute()))) {
     return false;
   }
-  if (!ae_m_bit.write(ae_m)) {
+  if (!ignore_minutes.write(!match_minutes)) {
     return false;
   }
 
-  // Hours alarm register (preserve GP0 bit)
+  // Set the hour while preserving GP0.
   Adafruit_BusIO_Register hours_alarm_reg(i2c_dev, RV8803_REG_HOURS_ALARM, 1);
-  Adafruit_BusIO_RegisterBits ae_h_bit(&hours_alarm_reg, 1, 7);
-  Adafruit_BusIO_RegisterBits gp0_bit(&hours_alarm_reg, 1, 6);
-  uint8_t gp0_val = gp0_bit.read();
-  if (!hours_alarm_reg.write(bin2bcd(dt.hour()) | (gp0_val << 6))) {
+  Adafruit_BusIO_RegisterBits alarm_hours(&hours_alarm_reg, 6, 0);
+  Adafruit_BusIO_RegisterBits ignore_hours(&hours_alarm_reg, 1, 7);
+  if (!alarm_hours.write(bin2bcd(dt.hour()))) {
     return false;
   }
-  if (!ae_h_bit.write(ae_h)) {
+  if (!ignore_hours.write(!match_hours)) {
     return false;
   }
 
-  // Weekday/Date alarm register
+  // The extension register selects date or weekday matching.
   Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
-  Adafruit_BusIO_RegisterBits wada(&ext_reg, 1, 6);
+  Adafruit_BusIO_RegisterBits date_mode(&ext_reg, 1, 6);
 
+  // Update the selected day field. Date mode must preserve GP1.
   Adafruit_BusIO_Register wd_alarm_reg(i2c_dev, RV8803_REG_WEEKDAY_DATE_ALARM,
                                        1);
-  Adafruit_BusIO_RegisterBits ae_wd_bit(&wd_alarm_reg, 1, 7);
-  Adafruit_BusIO_RegisterBits gp1_bit(&wd_alarm_reg, 1, 6);
-
-  if (wada.read()) {
-    // Date mode (preserve GP1 bit)
-    uint8_t gp1_val = gp1_bit.read();
-    if (!wd_alarm_reg.write(bin2bcd(dt.day()) | (gp1_val << 6))) {
+  Adafruit_BusIO_RegisterBits ignore_day(&wd_alarm_reg, 1, 7);
+  if (date_mode.read()) {
+    Adafruit_BusIO_RegisterBits alarm_date(&wd_alarm_reg, 6, 0);
+    if (!alarm_date.write(bin2bcd(dt.day()))) {
       return false;
     }
   } else {
-    // Weekday mode (one-hot)
-    if (!wd_alarm_reg.write(weekday2onehot(dt.dayOfTheWeek()))) {
+    Adafruit_BusIO_RegisterBits alarm_weekdays(&wd_alarm_reg, 7, 0);
+    if (!alarm_weekdays.write(weekday2onehot(dt.dayOfTheWeek()))) {
       return false;
     }
   }
-  if (!ae_wd_bit.write(ae_wd)) {
-    return false;
-  }
-
-  return true;
+  return ignore_day.write(!match_day);
 }
 
 /**
@@ -325,28 +347,30 @@ bool Adafruit_RV8803::setAlarm(const DateTime& dt, rv8803_alarm_mode_t mode) {
  * does not preserve a multi-day mask or define a separate I2C-error result.
  */
 DateTime Adafruit_RV8803::getAlarm() {
+  // Read the time fields without the alarm-enable or GP bits.
   Adafruit_BusIO_Register min_alarm_reg(i2c_dev, RV8803_REG_MINUTES_ALARM, 1);
+  Adafruit_BusIO_RegisterBits alarm_minutes(&min_alarm_reg, 7, 0);
+  uint8_t minutes = bcd2bin(alarm_minutes.read());
+
   Adafruit_BusIO_Register hours_alarm_reg(i2c_dev, RV8803_REG_HOURS_ALARM, 1);
+  Adafruit_BusIO_RegisterBits alarm_hours(&hours_alarm_reg, 6, 0);
+  uint8_t hours = bcd2bin(alarm_hours.read());
+
+  // The extension register selects which day field to read.
+  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
+  Adafruit_BusIO_RegisterBits date_mode(&ext_reg, 1, 6);
   Adafruit_BusIO_Register wd_alarm_reg(i2c_dev, RV8803_REG_WEEKDAY_DATE_ALARM,
                                        1);
-  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
-  Adafruit_BusIO_RegisterBits wada(&ext_reg, 1, 6);
-
-  uint8_t minutes = bcd2bin(min_alarm_reg.read() & 0x7F);
-  uint8_t hours = bcd2bin(hours_alarm_reg.read() & 0x3F);
-
-  uint8_t wd_val = wd_alarm_reg.read();
   uint8_t day;
-
-  if (wada.read()) {
-    // Date mode
-    day = bcd2bin(wd_val & 0x3F);
+  if (date_mode.read()) {
+    Adafruit_BusIO_RegisterBits alarm_date(&wd_alarm_reg, 6, 0);
+    day = bcd2bin(alarm_date.read());
   } else {
-    // Weekday mode - convert one-hot to day number
-    day = onehot2weekday(wd_val & 0x7F);
+    Adafruit_BusIO_RegisterBits alarm_weekdays(&wd_alarm_reg, 7, 0);
+    day = onehot2weekday(alarm_weekdays.read());
   }
 
-  // Return DateTime with alarm fields (year/month set to minimum)
+  // This DateTime is a container for alarm fields, not a full timestamp.
   return DateTime(2000, 1, day, hours, minutes, 0);
 }
 
@@ -367,15 +391,11 @@ bool Adafruit_RV8803::setAlarmWeekday(uint8_t weekday_mask) {
     return false;
   }
 
-  // Read current AE bit and write weekday mask
+  // Update the weekday field, preserving AE.
   Adafruit_BusIO_Register wd_alarm_reg(i2c_dev, RV8803_REG_WEEKDAY_DATE_ALARM,
                                        1);
-  Adafruit_BusIO_RegisterBits ae_wd_bit(&wd_alarm_reg, 1, 7);
-  uint8_t ae_val = ae_wd_bit.read();
-  if (!wd_alarm_reg.write((ae_val << 7) | (weekday_mask & 0x7F))) {
-    return false;
-  }
-  return true;
+  Adafruit_BusIO_RegisterBits alarm_weekdays(&wd_alarm_reg, 7, 0);
+  return alarm_weekdays.write(weekday_mask);
 }
 
 /**
@@ -395,17 +415,11 @@ bool Adafruit_RV8803::setAlarmDate(uint8_t date) {
     return false;
   }
 
-  // Read current AE bit and GP1 bit, write date
+  // Update the date field, preserving AE and GP1.
   Adafruit_BusIO_Register wd_alarm_reg(i2c_dev, RV8803_REG_WEEKDAY_DATE_ALARM,
                                        1);
-  Adafruit_BusIO_RegisterBits ae_wd_bit(&wd_alarm_reg, 1, 7);
-  Adafruit_BusIO_RegisterBits gp1_bit(&wd_alarm_reg, 1, 6);
-  uint8_t ae_val = ae_wd_bit.read();
-  uint8_t gp1_val = gp1_bit.read();
-  if (!wd_alarm_reg.write((ae_val << 7) | (gp1_val << 6) | bin2bcd(date))) {
-    return false;
-  }
-  return true;
+  Adafruit_BusIO_RegisterBits alarm_date(&wd_alarm_reg, 6, 0);
+  return alarm_date.write(bin2bcd(date));
 }
 
 /**
@@ -415,13 +429,37 @@ bool Adafruit_RV8803::setAlarmDate(uint8_t date) {
 rv8803_alarm_mode_t Adafruit_RV8803::getAlarmMode() {
   // AE bits are configuration in hardware, including after another begin().
   Adafruit_BusIO_Register alarm_reg(i2c_dev, RV8803_REG_MINUTES_ALARM, 3);
-  uint8_t values[3];
-  if (!alarm_reg.read(values, sizeof(values))) {
+  rv8803_alarm_register_t alarms[3];
+  if (!alarm_reg.read((uint8_t*)alarms, sizeof(alarms))) {
     return (rv8803_alarm_mode_t)RV8803_READ_ERROR;
   }
-  return (rv8803_alarm_mode_t)(bitRead(values[0], 7) |
-                               (bitRead(values[1], 7) << 1) |
-                               (bitRead(values[2], 7) << 2));
+  // Decode the checked snapshot: RegisterBits reads cannot report failure.
+  bool match_minutes = !alarms[0].fields.ignore;
+  bool match_hours = !alarms[1].fields.ignore;
+  bool match_day = !alarms[2].fields.ignore;
+
+  if (match_day) {
+    if (match_minutes && match_hours) {
+      return RV8803_A_MinHourDay;
+    }
+    if (match_minutes) {
+      return RV8803_A_MinDay;
+    }
+    if (match_hours) {
+      return RV8803_A_HourDay;
+    }
+    return RV8803_A_Day;
+  }
+  if (match_minutes && match_hours) {
+    return RV8803_A_HourMin;
+  }
+  if (match_minutes) {
+    return RV8803_A_Minute;
+  }
+  if (match_hours) {
+    return RV8803_A_Hour;
+  }
+  return RV8803_A_EveryMinute;
 }
 
 /**
@@ -484,7 +522,7 @@ bool Adafruit_RV8803::enableCountdownTimer(rv8803_timer_clock_t clock,
   Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
   Adafruit_BusIO_RegisterBits td(&ext_reg, 2, 0); // TD is bits 0-1
   Adafruit_BusIO_RegisterBits te(&ext_reg, 1, 4); // TE is bit 4
-  if (!td.write(clock & 0x03)) {
+  if (!td.write(clock)) {
     return false;
   }
   return te.write(1);
@@ -544,7 +582,7 @@ bool Adafruit_RV8803::clearTimer() {
 bool Adafruit_RV8803::setUpdateMode(rv8803_update_mode_t mode) {
   Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
   Adafruit_BusIO_RegisterBits usel(&ext_reg, 1, 5); // USEL is bit 5
-  return usel.write(mode == RV8803_UpdateMinute ? 1 : 0);
+  return usel.write(mode == RV8803_UpdateMinute);
 }
 
 /**
@@ -580,10 +618,10 @@ bool Adafruit_RV8803::configureEvent(bool rising_edge,
   Adafruit_BusIO_Register evctrl_reg(i2c_dev, RV8803_REG_EVENT_CONTROL, 1);
   Adafruit_BusIO_RegisterBits ehl(&evctrl_reg, 1, 6); // EHL is bit 6
   Adafruit_BusIO_RegisterBits et(&evctrl_reg, 2, 4);  // ET is bits 4-5
-  if (!ehl.write(rising_edge ? 1 : 0)) {
+  if (!ehl.write(rising_edge)) {
     return false;
   }
-  return et.write(filter & 0x03);
+  return et.write(filter);
 }
 
 /**
@@ -596,7 +634,7 @@ bool Adafruit_RV8803::configureEvent(bool rising_edge,
 bool Adafruit_RV8803::enableEventCapture(bool enable) {
   Adafruit_BusIO_Register evctrl_reg(i2c_dev, RV8803_REG_EVENT_CONTROL, 1);
   Adafruit_BusIO_RegisterBits ecp(&evctrl_reg, 1, 7); // ECP is bit 7
-  return ecp.write(enable ? 1 : 0);
+  return ecp.write(enable);
 }
 
 /**
@@ -609,7 +647,7 @@ bool Adafruit_RV8803::enableEventCapture(bool enable) {
 bool Adafruit_RV8803::enableEventReset(bool enable) {
   Adafruit_BusIO_Register evctrl_reg(i2c_dev, RV8803_REG_EVENT_CONTROL, 1);
   Adafruit_BusIO_RegisterBits erst(&evctrl_reg, 1, 0); // ERST is bit 0
-  return erst.write(enable ? 1 : 0);
+  return erst.write(enable);
 }
 
 /**
@@ -714,7 +752,7 @@ bool Adafruit_RV8803::disableInterrupt(rv8803_interrupt_t source) {
 bool Adafruit_RV8803::writeSqwPinMode(rv8803_sqw_mode_t mode) {
   Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
   Adafruit_BusIO_RegisterBits fd(&ext_reg, 2, 2); // FD is bits 2-3
-  return fd.write(mode & 0x03);
+  return fd.write(mode);
 }
 
 /**
@@ -742,7 +780,7 @@ bool Adafruit_RV8803::calibrate(int8_t offset) {
 
   Adafruit_BusIO_Register offset_reg(i2c_dev, RV8803_REG_OFFSET, 1);
   Adafruit_BusIO_RegisterBits offset_bits(&offset_reg, 6, 0);
-  return offset_bits.write(offset & 0x3F);
+  return offset_bits.write(offset);
 }
 
 /**

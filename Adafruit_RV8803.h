@@ -180,6 +180,17 @@ typedef enum {
   RV8803_InterruptEvent = 2,  /**< EIE — external event */
 } rv8803_interrupt_t;
 
+/** Alarm register layout for decoding a checked three-register snapshot. */
+typedef union {
+  uint8_t value; /**< Complete alarm register byte. */
+  struct {
+    uint8_t data : 7;   /**< Alarm data and any shared GP bit. */
+    uint8_t ignore : 1; /**< AE: 1 ignores this field, 0 matches it. */
+  } fields;             /**< Named fields in the alarm register. */
+} rv8803_alarm_register_t;
+static_assert(sizeof(rv8803_alarm_register_t) == 1,
+              "Alarm register must occupy one byte");
+
 /** Captured external-event time within a minute (not a full date/time). */
 typedef struct {
   uint8_t seconds;    /**< Captured seconds, 0-59. */
