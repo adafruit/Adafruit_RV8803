@@ -3,7 +3,7 @@
 #include <Adafruit_RV8803.h>
 
 Adafruit_RV8803 rtc;
-unsigned long lastTimePrint = 0;
+uint8_t lastSecond = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -52,7 +52,7 @@ void setup() {
   Serial.print(F("Alarm set for: "));
   Serial.println(alarmTime.timestamp(DateTime::TIMESTAMP_TIME));
   Serial.println(F("First alarm at the next minute boundary, then daily"));
-  lastTimePrint = millis();
+  lastSecond = now.second();
 }
 
 void loop() {
@@ -60,17 +60,16 @@ void loop() {
     Serial.println(F("Alarm fired"));
     if (!rtc.clearAlarm()) Serial.println(F("Could not clear the alarm"));
   }
-  // Print once per second without slowing down the alarm checks.
-  unsigned long currentMillis = millis();
-  if (currentMillis - lastTimePrint >= 1000) {
-    lastTimePrint = currentMillis;
-    DateTime now = rtc.now();
-    if (now.isValid()) {
+  // Print whenever the RTC's seconds value changes.
+  DateTime now = rtc.now();
+  if (now.isValid()) {
+    if (now.second() != lastSecond) {
+      lastSecond = now.second();
       Serial.print(F("Current RTC time: "));
       Serial.println(now.timestamp(DateTime::TIMESTAMP_TIME));
-    } else {
-      Serial.println(F("Could not read the current time"));
     }
+  } else {
+    Serial.println(F("Could not read the current time"));
   }
   delay(100);
 }
