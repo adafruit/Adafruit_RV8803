@@ -287,11 +287,9 @@ class Adafruit_RV8803 : public RTC_I2C {
   bool tempCompStopped();
   bool clearPowerFlags();
 
-  // RAM & GP Bits
+  // RAM
   bool writeRAM(uint8_t value);
   uint8_t readRAM();
-  bool writeGP(uint8_t bits);
-  uint8_t readGP();
 
   // Direct Register Access
   uint8_t readExtensionRegister();

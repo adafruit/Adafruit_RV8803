@@ -422,17 +422,12 @@ bool clearPowerFlags();
   // Clears both V1F and V2F.
 ```
 
-### RAM & GP Bits
+### RAM
 
 ```cpp
 bool writeRAM(uint8_t value);
 uint8_t readRAM();
   // Single byte at 0x07.
-
-bool writeGP(uint8_t bits);
-uint8_t readGP();
-  // 6-bit value mapped from GP0–GP5 scattered across registers.
-  // bits[0]=GP0, bits[1]=GP1, ..., bits[5]=GP5.
 ```
 
 ### Direct Register Access
