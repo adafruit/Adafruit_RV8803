@@ -14,7 +14,8 @@ Library**, then install the dependencies through Library Manager.
 - `simpletest`: set and read the date and time.
 - `alarm`: trigger at the next minute boundary, then daily at that time.
 - `timer`: repeat a five-second countdown. The first interval takes 5–6 seconds.
-- `event_capture`: capture seconds and hundredths with the EVI input.
+- `event_capture`: report a pending event at startup, then capture seconds and
+  hundredths with the EVI input. Only the latest event is retained.
 - `square_wave`: output a continuous 1 Hz square wave on SQW, with CLKOE tied HIGH.
 
 CLOE must be HIGH for the SQW output. The clock provides 32.768 kHz, 1024 Hz,
