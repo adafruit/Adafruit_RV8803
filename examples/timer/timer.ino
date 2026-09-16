@@ -8,7 +8,9 @@ void setup() {
   // Wait for Serial Monitor on native USB boards; remove for standalone use.
   while (!Serial) delay(10);
   delay(250);
+
   Serial.println(F("Adafruit RV8803 countdown timer"));
+
   if (!rtc.begin()) {
     Serial.println(F("RTC not found"));
     while (true) delay(10);

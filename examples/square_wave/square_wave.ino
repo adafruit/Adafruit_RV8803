@@ -14,6 +14,7 @@ void setup() {
   delay(600); // Allow the RTC's power-on reset to finish.
 
   Serial.println(F("Adafruit RV8803 square wave"));
+
   if (!rtc.begin()) {
     Serial.println(F("RTC not found"));
     while (true) delay(10);

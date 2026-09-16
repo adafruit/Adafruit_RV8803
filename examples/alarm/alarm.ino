@@ -10,7 +10,9 @@ void setup() {
   // Wait for Serial Monitor on native USB boards; remove for standalone use.
   while (!Serial) delay(10);
   delay(600); // Allow the RTC's power-on reset to finish.
+
   Serial.println(F("Adafruit RV8803 next-minute alarm"));
+
   if (!rtc.begin()) {
     halt(F("RTC not found"));
   }
