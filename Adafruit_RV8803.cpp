@@ -540,16 +540,14 @@ bool Adafruit_RV8803::disableCountdownTimer() {
 
 /**
  * @brief Read the countdown timer preset value
- * @return 12-bit preset (not live countdown), or UINT16_MAX on I2C error
+ * @return 12-bit preset (not live countdown); 4095 can also indicate an I2C
+ * error
  */
 uint16_t Adafruit_RV8803::getCountdownTimer() {
   // Read both preset bytes together; upper four bits are GP storage.
   Adafruit_BusIO_Register timer_reg(i2c_dev, RV8803_REG_TIMER_COUNTER0, 2);
-  uint16_t value;
-  if (!timer_reg.read(&value)) {
-    return UINT16_MAX;
-  }
-  return value & 4095;
+  Adafruit_BusIO_RegisterBits timer_preset(&timer_reg, 12, 0);
+  return timer_preset.read();
 }
 
 /**
