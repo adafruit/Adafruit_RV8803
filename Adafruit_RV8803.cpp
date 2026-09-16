@@ -690,12 +690,8 @@ bool Adafruit_RV8803::clearEvent() {
  */
 bool Adafruit_RV8803::enableInterrupt(rv8803_interrupt_t source) {
   Adafruit_BusIO_Register ctrl_reg(i2c_dev, RV8803_REG_CONTROL, 1);
-  uint8_t ctrl;
-  if (!ctrl_reg.read(&ctrl)) {
-    return false;
-  }
-  bitSet(ctrl, source);
-  return ctrl_reg.write(ctrl);
+  Adafruit_BusIO_RegisterBits interrupt_enable(&ctrl_reg, 1, source);
+  return interrupt_enable.write(1);
 }
 
 /**
@@ -705,12 +701,8 @@ bool Adafruit_RV8803::enableInterrupt(rv8803_interrupt_t source) {
  */
 bool Adafruit_RV8803::disableInterrupt(rv8803_interrupt_t source) {
   Adafruit_BusIO_Register ctrl_reg(i2c_dev, RV8803_REG_CONTROL, 1);
-  uint8_t ctrl;
-  if (!ctrl_reg.read(&ctrl)) {
-    return false;
-  }
-  bitClear(ctrl, source);
-  return ctrl_reg.write(ctrl);
+  Adafruit_BusIO_RegisterBits interrupt_enable(&ctrl_reg, 1, source);
+  return interrupt_enable.write(0);
 }
 
 /**
