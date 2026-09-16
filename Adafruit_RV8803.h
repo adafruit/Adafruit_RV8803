@@ -291,21 +291,15 @@ class Adafruit_RV8803 : public RTC_I2C {
   bool writeRAM(uint8_t value);
   uint8_t readRAM();
 
-  // Direct Register Access
-  uint8_t readExtensionRegister();
-  bool writeExtensionRegister(uint8_t value);
+  // Status flags
   uint8_t readFlagRegister();
   bool readFlagRegister(uint8_t* flags);
-  bool writeFlagRegister(uint8_t value);
-  uint8_t readControlRegister();
-  bool writeControlRegister(uint8_t value);
-  uint8_t readEventControl();
-  bool writeEventControl(uint8_t value);
 
   // Reset
   bool reset();
 
  private:
+  bool writeFlagRegister(uint8_t value);
   static uint8_t weekday2onehot(uint8_t day);
   static uint8_t onehot2weekday(uint8_t bits);
 };

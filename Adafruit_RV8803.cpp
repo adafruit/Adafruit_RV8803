@@ -133,13 +133,13 @@ bool Adafruit_RV8803::lostPower() {
  * @return true if RESET and V2F are clear; false on I2C error
  */
 bool Adafruit_RV8803::isrunning() {
-  uint8_t control = readControlRegister();
-  uint8_t flags;
-  if (!readFlagRegister(&flags)) {
+  Adafruit_BusIO_Register control_reg(i2c_dev, RV8803_REG_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits prescaler_stopped(&control_reg, 1, 0);
+  // A failed RegisterBits read also returns 1, so it reports not running.
+  if (prescaler_stopped.read()) {
     return false;
   }
-  return control != RV8803_READ_ERROR && !(control & RV8803_CTRL_RESET) &&
-         !(flags & RV8803_FLAG_TIME_INVALID);
+  return !lostPower();
 }
 
 /**
@@ -838,26 +838,6 @@ uint8_t Adafruit_RV8803::readRAM() {
 }
 
 /**
- * @brief Read the Extension Register (0x0D)
- * @return Register value, or RV8803_READ_ERROR on I2C error
- */
-uint8_t Adafruit_RV8803::readExtensionRegister() {
-  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
-  return ext_reg.read();
-}
-
-/**
- * @brief Write to the Extension Register (0x0D)
- * @param value Value to write (TEST bit should be 0)
- * @return true on success
- */
-bool Adafruit_RV8803::writeExtensionRegister(uint8_t value) {
-  value &= ~RV8803_EXT_TEST; // Ensure TEST bit is always 0
-  Adafruit_BusIO_Register ext_reg(i2c_dev, RV8803_REG_EXTENSION, 1);
-  return ext_reg.write(value);
-}
-
-/**
  * @brief Read the Flag Register (0x0E)
  * @return Register value, or RV8803_READ_ERROR on I2C error
  */
@@ -897,46 +877,6 @@ bool Adafruit_RV8803::readFlagRegister(uint8_t* flags) {
 bool Adafruit_RV8803::writeFlagRegister(uint8_t value) {
   Adafruit_BusIO_Register flag_reg(i2c_dev, RV8803_REG_FLAG, 1);
   return flag_reg.write(value & RV8803_FLAG_MASK);
-}
-
-/**
- * @brief Read the Control Register (0x0F)
- * @return Register value, or RV8803_READ_ERROR on I2C error
- */
-uint8_t Adafruit_RV8803::readControlRegister() {
-  Adafruit_BusIO_Register ctrl_reg(i2c_dev, RV8803_REG_CONTROL, 1);
-  return ctrl_reg.read();
-}
-
-/**
- * @brief Write to the Control Register (0x0F)
- * @param value Value to write
- * @return true on success
- * @note Reserved bits are masked off. RESET holds the prescaler stopped until
- * software clears it; it does not clear itself.
- */
-bool Adafruit_RV8803::writeControlRegister(uint8_t value) {
-  Adafruit_BusIO_Register ctrl_reg(i2c_dev, RV8803_REG_CONTROL, 1);
-  return ctrl_reg.write(value & RV8803_CTRL_MASK);
-}
-
-/**
- * @brief Read the Event Control Register (0x2F)
- * @return Register value, or RV8803_READ_ERROR on I2C error
- */
-uint8_t Adafruit_RV8803::readEventControl() {
-  Adafruit_BusIO_Register evctrl_reg(i2c_dev, RV8803_REG_EVENT_CONTROL, 1);
-  return evctrl_reg.read();
-}
-
-/**
- * @brief Write to the Event Control Register (0x2F)
- * @param value Value to write
- * @return true on success
- */
-bool Adafruit_RV8803::writeEventControl(uint8_t value) {
-  Adafruit_BusIO_Register evctrl_reg(i2c_dev, RV8803_REG_EVENT_CONTROL, 1);
-  return evctrl_reg.write(value);
 }
 
 /**

@@ -2,8 +2,11 @@
 // Metro Mini: VIN=A0, INT=D3, EVI=D4, SDA=A4, SCL=A5.
 // D4 stays an input: press the physical button when prompted.
 #include <Adafruit_RV8803.h>
+#include <Adafruit_BusIO_Register.h>
 
 Adafruit_RV8803 rtc;
+Adafruit_I2CDevice rtc_device(RV8803_I2C_ADDRESS);
+Adafruit_BusIO_Register control_reg(&rtc_device, RV8803_REG_CONTROL, 1);
 const uint16_t buttonPin = 4;
 const uint16_t interruptPin = 3;
 const unsigned long buttonTimeoutMs = 30000;
@@ -23,8 +26,9 @@ void setup() {
   pinMode(interruptPin, INPUT);
   delay(600); // Power-on reset can take 500 ms (manual section 7.4).
   check(rtc.begin(), F("Begin succeeded"));
+  check(rtc_device.begin(), F("Raw register access ready"));
   // Isolate this test from timer, alarm, or update interrupts left by a sketch.
-  check(rtc.writeControlRegister(0), F("Other interrupt sources disabled"));
+  check(control_reg.write(0), F("Other interrupt sources disabled"));
   check(rtc.enableEventReset(false), F("Event reset disabled"));
   check(rtc.enableEventCapture(false), F("Timestamp capture disabled"));
   check(rtc.configureEvent(false, RV8803_EventFilter16ms),

@@ -430,27 +430,17 @@ uint8_t readRAM();
   // Single byte at 0x07.
 ```
 
-### Direct Register Access
+### Status Flags
 
 ```cpp
-// Extension Register (0x0D) — read/write full byte
-uint8_t readExtensionRegister();
-bool writeExtensionRegister(uint8_t value);
-
-// Flag Register (0x0E) — read full byte, clear specific flags
 uint8_t readFlagRegister();
-bool writeFlagRegister(uint8_t value);
-  // Use to clear multiple flags at once. Writing 0 clears a flag.
-  // Writing 1 to V1F/V2F has no effect.
-
-// Control Register (0x0F) — read/write full byte
-uint8_t readControlRegister();
-bool writeControlRegister(uint8_t value);
-
-// Event Control Register (0x2F) — read/write full byte
-uint8_t readEventControl();
-bool writeEventControl(uint8_t value);
+  // Full flag byte; RV8803_READ_ERROR can also indicate an I2C failure.
+bool readFlagRegister(uint8_t* flags);
+  // Checked read; leaves the destination unchanged on failure.
 ```
+
+Use the named configuration methods and flag-clearing methods for writes.
+Raw register access in engineering tests uses Adafruit BusIO directly.
 
 ### Reset
 

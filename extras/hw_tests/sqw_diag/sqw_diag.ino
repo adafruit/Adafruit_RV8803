@@ -1,6 +1,8 @@
 #include <Adafruit_RV8803.h>
+#include <Adafruit_BusIO_Register.h>
 
 Adafruit_RV8803 rtc;
+Adafruit_I2CDevice rtc_device(RV8803_I2C_ADDRESS);
 
 void setup() {
   Serial.begin(115200);
@@ -19,15 +21,25 @@ void setup() {
     return;
   }
 
+  if (!rtc_device.begin()) {
+    Serial.println(F("Could not open raw register access"));
+    return;
+  }
+  Adafruit_BusIO_Register extension_reg(&rtc_device, RV8803_REG_EXTENSION, 1);
+
   // Set 32kHz mode
   rtc.writeSqwPinMode(RV8803_SquareWave32kHz);
 
   // Read back extension register
-  uint8_t ext = rtc.readExtensionRegister();
+  uint8_t ext;
+  if (!extension_reg.read(&ext)) {
+    Serial.println(F("Could not read extension register"));
+    return;
+  }
   Serial.print(F("Extension reg: 0x"));
   Serial.println(ext, HEX);
   Serial.print(F("FD bits: "));
-  Serial.println((ext >> 2) & 0x03);
+  Serial.println(rtc.readSqwPinMode());
 
   // Try all CLKOE states, hold each for 5 seconds so scope can see
   Serial.println(F("D2 as OUTPUT LOW for 5s... (scope SQWAVE now)"));

@@ -1,8 +1,11 @@
 // Metro Mini: VIN=A0, INT=D3, SDA=A4, SCL=A5.
 // Manual sections 4.5.2-4.5.3 distinguish startup from repeating periods.
 #include <Adafruit_RV8803.h>
+#include <Adafruit_BusIO_Register.h>
 
 Adafruit_RV8803 rtc;
+Adafruit_I2CDevice rtc_device(RV8803_I2C_ADDRESS);
+Adafruit_BusIO_Register control_reg(&rtc_device, RV8803_REG_CONTROL, 1);
 const uint16_t interruptPin = 3;
 // Covers the uncalibrated Metro clock and I2C setup, not RTC ppm accuracy.
 const uint32_t timingToleranceUs = 50000;
@@ -21,8 +24,9 @@ void setup() {
   pinMode(interruptPin, INPUT);
   delay(600); // Power-on reset can take 500 ms (manual section 7.4).
   check(rtc.begin(), F("Begin succeeded"));
+  check(rtc_device.begin(), F("Raw register access ready"));
   // Isolate the timer on the shared INT output and release prescaler RESET.
-  check(rtc.writeControlRegister(0), F("Interrupt sources disabled"));
+  check(control_reg.write(0), F("Interrupt sources disabled"));
   attachInterrupt(digitalPinToInterrupt(interruptPin), timerEdge, FALLING);
 
   const uint16_t presets[] = {3, 5};

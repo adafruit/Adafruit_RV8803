@@ -1,8 +1,11 @@
 // Metro Mini: VIN=A0, INT=D3, EVI=D4, SDA=A4, SCL=A5.
 // EVI is pulled up on the breakout. D4 only pulls low or releases it.
 #include <Adafruit_RV8803.h>
+#include <Adafruit_BusIO_Register.h>
 
 Adafruit_RV8803 rtc;
+Adafruit_I2CDevice rtc_device(RV8803_I2C_ADDRESS);
+Adafruit_BusIO_Register control_reg(&rtc_device, RV8803_REG_CONTROL, 1);
 const uint16_t eventPin = 4;
 const uint16_t interruptPin = 3;
 
@@ -19,7 +22,8 @@ void setup() {
   pinMode(interruptPin, INPUT);
   delay(600); // Power-on reset can take 500 ms (manual section 7.4).
   check(rtc.begin(), F("Begin succeeded"));
-  check(rtc.writeControlRegister(0), F("Interrupts disabled"));
+  check(rtc_device.begin(), F("Raw register access ready"));
+  check(control_reg.write(0), F("Interrupts disabled"));
   check(rtc.enableEventReset(false), F("Event reset disabled"));
   check(rtc.enableEventCapture(true), F("Timestamp capture enabled"));
   const rv8803_event_filter_t filters[] = {RV8803_EventFilterNone,
@@ -81,7 +85,10 @@ void setup() {
   setInputLevel(true);
   delay(20);
   check(rtc.eventFired(), F("Reset event detected"));
-  check(!(rtc.readEventControl() & RV8803_EVCTRL_ERST), F("ERST cleared automatically"));
+  // ERST is self-clearing; inspect it directly to verify the hardware effect.
+  Adafruit_BusIO_Register event_reg(&rtc_device, RV8803_REG_EVENT_CONTROL, 1);
+  Adafruit_BusIO_RegisterBits event_reset(&event_reg, 1, 0);
+  check(event_reset.read() == 0, F("ERST cleared automatically"));
   check(rtc.getEventSeconds() == 0 && rtc.getEventHundredths() == 0,
         F("Event reset cleared both capture registers"));
   check(rtc.getHundredths() < 10, F("Event reset restarted fractional seconds"));
