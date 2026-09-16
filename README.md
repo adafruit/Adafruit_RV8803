@@ -21,25 +21,4 @@ Library**, then install the dependencies through Library Manager.
 CLOE must be HIGH for the SQW output. The clock provides 32.768 kHz, 1024 Hz,
 or 1 Hz. Event timestamps contain only seconds and hundredths within a minute.
 
-## Hardware tests
-
-The numbered sketches in `extras/hw_tests` use a Metro Mini with VIN on A0,
-SDA/SCL on A4/A5, and CLOE/INT/EVI/SQW on D2/D3/D4/D5. In `06_ram`, set
-`batteryInstalled` to match the fixture; it defaults to an installed coin cell.
-These tests change the RTC time and settings.
-
-`15_no_battery` requires the coin cell removed and VIN powered only by A0.
-It removes VIN for five minutes to allow the backup supply capacitor to
-discharge, checks that power loss remains flagged through `begin()`, then
-checks that setting the time clears the flags and restarts normal timekeeping.
-The off interval is configurable with `powerOffMs`. This tests loss of backup
-power; it does not detect an absent battery while VIN remains powered.
-
-`16_button` tests the physical EVI pushbutton. Open Serial Monitor at 115200
-baud, then press and hold the button and release it when prompted. Each prompt
-allows 30 seconds. The test checks D4, the RTC event flag, and INT assertion
-and acknowledgement. D4 remains an input throughout; reset the Metro to repeat.
-
-See [DESIGN.md](DESIGN.md) for register details and validation notes.
-
 MIT licensed; see [LICENSE](LICENSE).
