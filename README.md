@@ -12,7 +12,7 @@ Library**, then install the dependencies through Library Manager.
 ## Examples
 
 - `simpletest`: set and read the date and time.
-- `alarm`: trigger an alarm every day at 09:30.
+- `alarm`: trigger at the next minute boundary, then daily at that time.
 - `timer`: repeat a five-second countdown. The first interval takes 5–6 seconds.
 - `event_capture`: capture seconds and hundredths with the EVI input.
 - `square_wave`: output a continuous 1 Hz square wave on SQW, with CLKOE tied HIGH.
