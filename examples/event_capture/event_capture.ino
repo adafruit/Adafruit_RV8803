@@ -81,7 +81,7 @@ void loop() {
 bool printCapturedEvent() {
   rv8803_timestamp_t captured;
   if (!rtc.getEventTimestamp(&captured)) return false;
-  Serial.print(F("Captured second: "));
+  Serial.print(F("\tCaptured second: "));
   Serial.print(captured.seconds);
   Serial.print('.');
   if (captured.hundredths < 10) Serial.print('0');
