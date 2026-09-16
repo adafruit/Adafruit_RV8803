@@ -12,30 +12,41 @@ void setup() {
   delay(600); // Allow the RTC's power-on reset to finish.
   Serial.println(F("Adafruit RV8803 next-minute alarm"));
   if (!rtc.begin()) {
-    Serial.println(F("RTC not found"));
-    while (true) delay(10);
+    halt(F("RTC not found"));
   }
-  if (rtc.lostPower() && !rtc.adjust(DateTime(F(__DATE__), F(__TIME__)))) {
-    Serial.println(F("Could not set the time"));
-    while (true) delay(10);
+  if (rtc.lostPower()) {
+    if (!rtc.adjust(DateTime(F(__DATE__), F(__TIME__)))) {
+      halt(F("Could not set the time"));
+    }
   }
   DateTime now = rtc.now();
   if (!now.isValid()) {
-    Serial.println(F("Could not read the current time"));
-    while (true) delay(10);
+    halt(F("Could not read the current time"));
   }
   // The alarm matches minutes, not seconds. Advance to the next minute at :00.
   // DateTime arithmetic also handles hour, day, month, and year rollover.
   DateTime alarmTime = now + TimeSpan(60 - now.second());
 
   // Disable alarm output while changing the match fields (manual section 4.7.2).
-  // HourMin repeats daily at this time; date/weekday is ignored.
-  if (!rtc.disableInterrupt(RV8803_InterruptAlarm) ||
-      !rtc.setAlarm(alarmTime, RV8803_A_HourMin) ||
-      !rtc.clearAlarm() || !rtc.enableInterrupt(RV8803_InterruptAlarm)) {
-    Serial.println(F("Could not configure the alarm"));
-    while (true) delay(10);
+  if (!rtc.disableInterrupt(RV8803_InterruptAlarm)) {
+    halt(F("Could not disable the alarm interrupt"));
   }
+
+  // HourMin repeats daily at this time; date/weekday is ignored.
+  if (!rtc.setAlarm(alarmTime, RV8803_A_HourMin)) {
+    halt(F("Could not set the alarm time"));
+  }
+
+  // Clear any pending alarm before enabling the new one.
+  if (!rtc.clearAlarm()) {
+    halt(F("Could not clear the alarm flag"));
+  }
+
+  // Allow the alarm to signal on the INT pin.
+  if (!rtc.enableInterrupt(RV8803_InterruptAlarm)) {
+    halt(F("Could not enable the alarm interrupt"));
+  }
+
   Serial.print(F("Current RTC time: "));
   Serial.println(now.timestamp(DateTime::TIMESTAMP_TIME));
   Serial.print(F("Alarm set for: "));
@@ -62,4 +73,10 @@ void loop() {
     }
   }
   delay(100);
+}
+
+// Print a setup error and stop here until the board is reset.
+void halt(const __FlashStringHelper *message) {
+  Serial.println(message);
+  while (true) delay(10);
 }
